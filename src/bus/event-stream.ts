@@ -4,10 +4,12 @@ import { isStreamEntry, type StreamEntry } from "./types.js";
 /**
  * The live event stream over GET /v1/events/stream.
  *
- * Protocol (floe-bus/src/server.ts:911): the client sends one `authenticate`
- * frame first; the Bus replies `authenticated`, replays backlog, then sends
- * `caught_up`; live data frames follow. There is no `hello` — a harness that
- * waited for one was wrong for months.
+ * Protocol (docs/guide/terminal/bus-api.md, "Resumable WebSocket stream"): the
+ * client sends one `authenticate` frame first; the Bus replies `authenticated`,
+ * replays backlog as `event_submitted` frames, then sends `caught_up`; live
+ * `event_submitted` frames follow. There is no `hello` — a harness that waited
+ * for one was wrong for months. Invalid auth closes 4401; an invalid cursor
+ * closes 4400.
  *
  * This is push, not poll. The only timer here is reconnect backoff after a
  * dropped socket — recovering a broken transport, never asking the substrate
@@ -142,8 +144,8 @@ export class EventStream {
         return;
       }
       default:
-        // cursor_acknowledged and any unknown control frame are ignored; this
-        // client is a workspace_operation reader and never acknowledges.
+        // Any unknown control frame is ignored; this client is a
+        // workspace_operation reader and never acknowledges cursors.
         return;
     }
   }
@@ -152,11 +154,17 @@ export class EventStream {
     this.socket = null;
     if (this.stopped) return;
 
-    // 4401/4403 are authentication/authority rejections: reconnecting with the
-    // same bearer will not help, so surface it rather than loop.
-    if (code === 4401 || code === 4403) {
+    // 4401 is an authentication/authority rejection (bus-api.md): reconnecting
+    // with the same bearer will not help, so surface it rather than loop.
+    if (code === 4401) {
       this.emit({ kind: "closed", reason: `authentication rejected (${code})` });
       return;
+    }
+
+    // 4400 is an invalid cursor (bus-api.md): the resume point is bad, so drop
+    // it and reconnect from a fresh position rather than looping on it.
+    if (code === 4400) {
+      this.lastCursor = null;
     }
 
     this.attempt += 1;

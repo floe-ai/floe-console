@@ -37,13 +37,11 @@ async function waitFor(predicate: () => boolean, timeoutMs = 3000): Promise<void
 }
 
 const now = () => new Date().toISOString();
-const entry = (cursor: string, sequence: number, type: string): StreamEntry => ({
-  cursor,
-  sequence,
-  workspace_id: "ws:test",
-  type,
-  payload: {},
+const entry = (cursor: string, eventType: string): StreamEntry => ({
+  type: "event_submitted",
+  payload: { type: eventType },
   at: now(),
+  cursor,
 });
 
 describe("EventStream protocol", () => {
@@ -53,9 +51,9 @@ describe("EventStream protocol", () => {
       ws.on("message", (raw) => {
         authFrame = JSON.parse(raw.toString());
         ws.send(JSON.stringify({ type: "authenticated", payload: { cursor: "c1" }, at: now() }));
-        ws.send(JSON.stringify(entry("c2", 2, "delivery_created")));
+        ws.send(JSON.stringify(entry("c2", "delivery_created")));
         ws.send(JSON.stringify({ type: "caught_up", payload: { cursor: "c2" }, at: now() }));
-        ws.send(JSON.stringify(entry("c3", 3, "request")));
+        ws.send(JSON.stringify(entry("c3", "request")));
       });
     });
 
@@ -83,7 +81,7 @@ describe("EventStream protocol", () => {
       bearer_token: "bearer-x",
       workspace_id: "ws:test",
     });
-    expect(entries.map((e) => e.type)).toEqual(["delivery_created", "request"]);
+    expect(entries.map((e) => e.payload.type)).toEqual(["delivery_created", "request"]);
     expect(caughtUp).toBe("c2");
     expect(statuses.some((s) => s.kind === "caught_up")).toBe(true);
 
@@ -100,7 +98,7 @@ describe("EventStream protocol", () => {
         authFrames.push(JSON.parse(raw.toString()));
         ws.send(JSON.stringify({ type: "authenticated", payload: { cursor: "c1" }, at: now() }));
         if (connection === 1) {
-          ws.send(JSON.stringify(entry("cX", 5, "turn_started")));
+          ws.send(JSON.stringify(entry("cX", "turn_started")));
           ws.send(JSON.stringify({ type: "caught_up", payload: { cursor: "cX" }, at: now() }));
           ws.close();
         } else {

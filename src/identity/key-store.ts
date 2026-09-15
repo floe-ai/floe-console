@@ -1,4 +1,5 @@
-import { randomBytes, scryptSync, createCipheriv, createDecipheriv } from "node:crypto";
+import { randomBytes, createCipheriv, createDecipheriv } from "node:crypto";
+import { KDF_PARAMS, deriveWrappingKey } from "./kdf.js";
 
 /**
  * At-rest protection for the identity secret key.
@@ -9,19 +10,14 @@ import { randomBytes, scryptSync, createCipheriv, createDecipheriv } from "node:
  * another process merely because it runs as the same OS user. An OS keychain
  * would prove the machine, not the human.
  *
- * KDF is Node's built-in scrypt (memory-hard, no native module, works headless
- * and over SSH); the wrapped key encrypts the secret with AES-256-GCM, whose
- * auth tag makes a wrong passphrase fail loudly rather than yield garbage.
+ * The KDF and its parameters live in ./kdf.ts (D-KDF) so they are visible in one
+ * place rather than buried here. The wrapped key encrypts the secret with
+ * AES-256-GCM, whose auth tag makes a wrong passphrase fail loudly rather than
+ * yield garbage.
  *
  * The recovery phrase is the true backup and is never stored here. Losing the
  * passphrase loses only this machine's copy; re-import the phrase to recover.
  */
-
-const SCRYPT_N = 2 ** 15;
-const SCRYPT_R = 8;
-const SCRYPT_P = 1;
-const KEY_LENGTH = 32;
-const SCRYPT_MAXMEM = 64 * 1024 * 1024;
 
 export interface IdentityFile {
   readonly version: 1;
@@ -59,7 +55,7 @@ export function encryptSecretKey(
 ): IdentityFile {
   const salt = randomBytes(16);
   const iv = randomBytes(12);
-  const wrappingKey = deriveWrappingKey(passphrase, salt);
+  const wrappingKey = deriveWrappingKey(passphrase, salt, KDF_PARAMS);
   const cipher = createCipheriv("aes-256-gcm", wrappingKey, iv);
   const ciphertext = Buffer.concat([cipher.update(Buffer.from(secretKey)), cipher.final()]);
   const tag = cipher.getAuthTag();
@@ -69,7 +65,7 @@ export function encryptSecretKey(
     version: 1,
     npub,
     created_at: new Date().toISOString(),
-    kdf: { name: "scrypt", N: SCRYPT_N, r: SCRYPT_R, p: SCRYPT_P, salt: salt.toString("base64") },
+    kdf: { name: "scrypt", N: KDF_PARAMS.N, r: KDF_PARAMS.r, p: KDF_PARAMS.p, salt: salt.toString("base64") },
     cipher: {
       name: "aes-256-gcm",
       iv: iv.toString("base64"),
@@ -82,11 +78,10 @@ export function encryptSecretKey(
 /** Decrypt the stored key with a passphrase. Throws IncorrectPassphraseError on mismatch. */
 export function decryptSecretKey(file: IdentityFile, passphrase: string): Uint8Array {
   const salt = Buffer.from(file.kdf.salt, "base64");
-  const wrappingKey = scryptSync(passphrase.normalize("NFKC"), salt, KEY_LENGTH, {
+  const wrappingKey = deriveWrappingKey(passphrase, salt, {
     N: file.kdf.N,
     r: file.kdf.r,
     p: file.kdf.p,
-    maxmem: SCRYPT_MAXMEM,
   });
   const decipher = createDecipheriv("aes-256-gcm", wrappingKey, Buffer.from(file.cipher.iv, "base64"));
   decipher.setAuthTag(Buffer.from(file.cipher.tag, "base64"));
@@ -101,13 +96,4 @@ export function decryptSecretKey(file: IdentityFile, passphrase: string): Uint8A
   } finally {
     wrappingKey.fill(0);
   }
-}
-
-function deriveWrappingKey(passphrase: string, salt: Buffer): Buffer {
-  return scryptSync(passphrase.normalize("NFKC"), salt, KEY_LENGTH, {
-    N: SCRYPT_N,
-    r: SCRYPT_R,
-    p: SCRYPT_P,
-    maxmem: SCRYPT_MAXMEM,
-  });
 }
