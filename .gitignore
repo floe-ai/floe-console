@@ -1,0 +1,13 @@
+node_modules/
+dist/
+coverage/
+*.log
+.env
+.env.*
+.DS_Store
+
+# Never commit identity material. The key store lives in the OS config dir,
+# not the repo, but guard against accidental local copies during development.
+*.key.json
+identity.key.json
+.floe-console/
