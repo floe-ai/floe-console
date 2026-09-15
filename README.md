@@ -30,19 +30,33 @@ The recovery phrase is the only durable backup and is never persisted. Lose the 
 
 ## Status
 
-Client-side identity + storage is built and verified live. The end-to-end
-authentication walk is **blocked on substrate work**: floe-bus has landed the
-NIP-42 verifier (`client-identity-auth.ts`) but not yet the challenge-issue /
-auth-submit / admission / operator-discovery routes it needs to be reachable by
-a client. See the connection layer's transport seam for the interface expected.
+Built and unit-verified: client identity + encrypted storage, the documented
+challenge/authenticate handshake, the auth/bearer session state machine, the
+live `/v1/events/stream` client, and the full Ink surface (first-run, unlock,
+admission wait, workspace select, main surface).
+
+**One open substrate finding — F-DOC.** The docs name the answer route
+(`POST /v1/events/emit`), its authority, and the fields to match (correlation,
+operator source, waiting-actor destination), but no document gives the literal
+request body, and `bus-api.md` instead points clients at runtime operation
+discovery (`context.communication.emit`) without reconciling the two. Answering
+and sending work therefore go through a single isolated, clearly-flagged emit
+seam (`src/bus/workspace-client.ts`) whose exact shape is confirmed against the
+running Bus, not asserted.
+
+**The live gate is not closed.** It requires a running Bus with an actor that
+asks a question, and this key admitted via `floe identity add`. Nothing here
+fakes a bearer or mocks substrate state to stand in for that walk.
 
 ## Develop
 
 ```
 npm install
-npm test          # unit tests for the crypto/storage layer
+npm test          # unit tests: crypto/storage, auth state machine, stream protocol
 npm run typecheck
-npx tsx scripts/identity-smoke.ts   # live end-to-end identity walk
+npm run build
+npx tsx scripts/identity-smoke.ts   # live local identity walk (no Bus needed)
+npm run dev       # run the console (needs a real terminal)
 ```
 
 Requires Node 20+.
