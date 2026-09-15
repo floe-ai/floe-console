@@ -159,9 +159,9 @@ export function MainSurface({
       <Box flexDirection="column" gap={1}>
         {header}
         <Text color="yellow">
-          No operator endpoint in this workspace (role "operator", bridgeless). Nothing can be
-          waiting on you here, and answers cannot be emitted. This is a substrate finding, not
-          something the console can fill.
+          This workspace has no operator Actor (expected at actor:&lt;workspace&gt;:operator).
+          Registration provisions one, so a missing operator means this workspace predates that
+          or was set up incompletely — a substrate finding, not something the console can fill.
         </Text>
         <Text dimColor>Press q to quit.</Text>
       </Box>

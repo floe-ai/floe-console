@@ -15,11 +15,12 @@
  *   1) tsx scripts/live-walk.ts provision      # generate key, print npub
  *   2) (operator) floe identity add --pubkey <npub> --workspace <id> ...
  *   3) tsx scripts/live-walk.ts connect         # handshake, stream, discovery
- *   4) tsx scripts/live-walk.ts emit-probe      # settle F-DOC: raw emit response
+ *   4) tsx scripts/live-walk.ts job3            # full loop: ask -> answer -> resolve
  *
  * Home + passphrase come from env so nothing is hand-baked into a screen:
- *   FLOE_CONSOLE_HOME  throwaway identity dir (required)
+ *   FLOE_CONSOLE_HOME     throwaway identity dir (required)
  *   FLOE_WALK_PASSPHRASE  passphrase for the throwaway key (required)
+ *   FLOE_WALK_WORKSPACE   optional: select a workspace by id or name
  */
 import type { AuthSessionState } from "../src/session/auth-session.js";
 
@@ -78,7 +79,11 @@ async function authenticate(): Promise<{
   let state = session.getState();
   if (state.kind === "selecting-workspace") {
     log("workspaces offered", state.workspaces.map((w) => `${w.name} (${w.workspace_id})`));
-    state = await session.selectWorkspace(state.workspaces[0]!.workspace_id);
+    const want = process.env.FLOE_WALK_WORKSPACE;
+    const chosen =
+      (want ? state.workspaces.find((w) => w.workspace_id === want || w.name === want) : undefined) ??
+      state.workspaces[0]!;
+    state = await session.selectWorkspace(chosen.workspace_id);
   }
   return { state, endpoints };
 }
@@ -131,49 +136,97 @@ async function connect(): Promise<void> {
 }
 
 /**
- * F-DOC probe: get a real bearer through the real handshake, then record what
- * the running Bus actually returns from POST /v1/events/emit. This is the one
- * observational fetch the diagnostic makes directly, precisely because the
- * WorkspaceClient module hides the response body and F-DOC is the question of
- * what that body/route contract actually is. It reimplements no auth and no
- * stream — it only records the emit response verbatim so the doc can be fixed.
+ * Job 3 end-to-end, driving the real modules with the stream open — the whole
+ * product loop without a terminal: authenticate -> open EventStream -> discover
+ * the operator Actor by ordinary listing -> send work asking the floe Actor to
+ * request the operator -> watch the stream for the request to surface -> answer
+ * it through WorkspaceClient.emitOperatorReply -> confirm the pending row is
+ * resolved and the response Event arrives on the stream. Nothing is faked: the
+ * request is a real model turn and the answer goes through the documented route.
  */
-async function emitProbe(): Promise<void> {
+async function job3(): Promise<void> {
   const { state, endpoints } = await authenticate();
   if (state.kind !== "ready") {
-    console.log(`\nnot ready (${state.kind}); cannot probe emit.\n`);
+    console.log(`\nnot ready (${state.kind}); cannot run job 3.\n`);
     process.exit(1);
   }
+  const { EventStream } = await import("../src/bus/event-stream.js");
   const { WorkspaceClient } = await import("../src/bus/workspace-client.js");
   const client = new WorkspaceClient({
     httpBaseUrl: endpoints.httpBaseUrl,
     bearerToken: state.bearer.token,
     workspaceId: state.workspace.workspace_id,
   });
-  const operator = await client.findOperatorEndpoint();
-  log("operator endpoint", operator ? operator.endpoint_id : "(none)");
 
-  const url = new URL("/v1/events/emit", endpoints.httpBaseUrl).toString();
-  const body = {
-    workspace_id: state.workspace.workspace_id,
-    source_endpoint_id: operator?.endpoint_id ?? null,
-    payload: { body: "F-DOC probe" },
-  };
-  console.log("\nF-DOC raw probe -> POST /v1/events/emit");
-  log("request body", body);
-  const res = await fetch(url, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${state.bearer.token}`,
-      "content-type": "application/json",
-      accept: "application/json",
+  const operator = await client.findOperatorEndpoint();
+  if (!operator) {
+    console.log("\nno operator Actor in this workspace; job 3 cannot run.\n");
+    process.exit(3);
+  }
+  log("operator endpoint", operator.endpoint_id);
+
+  const seen: string[] = [];
+  const stream = new EventStream({
+    wsBaseUrl: endpoints.wsBaseUrl,
+    bearerToken: state.bearer.token,
+    workspaceId: state.workspace.workspace_id,
+    startAtCurrent: true,
+    handlers: {
+      onStatus: (st) => log("stream ->", st.kind + ("reason" in st ? `: ${st.reason}` : "")),
+      onCaughtUp: () => log("stream ->", "caught_up"),
+      onEntry: (e) => {
+        log("stream entry", e.type);
+        seen.push(JSON.stringify(e.payload));
+      },
     },
-    body: JSON.stringify(body),
   });
-  const text = await res.text();
-  log("response status", res.status);
-  log("response body", text);
-  console.log("\nemit-probe complete.\n");
+  stream.start();
+
+  const target = process.env.FLOE_WALK_TARGET ?? `actor:${state.workspace.workspace_id}:floe`;
+  const ask =
+    process.env.FLOE_WALK_MESSAGE ??
+    "Use your request capability to ask me (the operator): should you proceed? Wait for my answer.";
+  log("send work to", target);
+  const sent = await client.sendWork({ sourceEndpointId: operator.endpoint_id, targetEndpointId: target, body: ask });
+  log("send work result", sent);
+
+  console.log("\nWaiting for the actor to ask (up to 120s)...");
+  let pending: Awaited<ReturnType<typeof client.listPendingForOperator>> = [];
+  const deadline = Date.now() + 120_000;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 3000));
+    pending = (await client.listPendingForOperator(operator.endpoint_id)).filter((p) => p.status === "pending");
+    if (pending.length > 0) break;
+  }
+  if (pending.length === 0) {
+    console.log("\nno request surfaced within budget.\n");
+    stream.stop();
+    process.exit(1);
+  }
+  const q = pending[0]!;
+  log("actor asked", q.correlation_id);
+  log("asked by", q.waiting_endpoint_id);
+
+  const answer = await client.emitOperatorReply({
+    operatorEndpointId: operator.endpoint_id,
+    waitingEndpointId: q.waiting_endpoint_id,
+    correlationId: q.correlation_id,
+    body: process.env.FLOE_WALK_ANSWER ?? "Yes, proceed. Confirmed by the console operator.",
+  });
+  console.log("\nJob 3 answer emitted:");
+  log("answer result", answer);
+
+  const after = await client.listPendingForOperator(operator.endpoint_id);
+  const row = after.find((r) => r.correlation_id === q.correlation_id);
+  log("pending row status", row?.status ?? "(gone)");
+  log("resolved", String(row?.status === "resolved"));
+
+  await new Promise((r) => setTimeout(r, 3000));
+  const onStream = seen.filter((p) => p.includes(q.correlation_id)).length;
+  log("frames on stream carrying this correlation", onStream);
+  log("resolution observed on stream", String(onStream > 0));
+  stream.stop();
+  console.log("\njob3 complete.\n");
   process.exit(0);
 }
 
@@ -264,8 +317,9 @@ async function answerPhase(): Promise<void> {
   console.log("\nBus emit response (job 3, answer):");
   log("result", result);
   const after = await client.listPendingForOperator(operator.endpoint_id);
-  log("pending after answer", after.length);
-  log("resolved on substrate", String(!after.some((r) => r.correlation_id === first.correlation_id)));
+  const resolvedRow = after.find((r) => r.correlation_id === first.correlation_id);
+  log("pending row status", resolvedRow?.status ?? "(gone)");
+  log("resolved on substrate", String(resolvedRow?.status === "resolved"));
   console.log("\nanswer complete.\n");
   process.exit(0);
 }
@@ -333,7 +387,7 @@ async function endpointsPhase(): Promise<void> {
   const all = await client.listEndpoints();
   console.log(`\nendpoints (${all.length}):`);
   for (const e of all) {
-    log("endpoint", `${e.endpoint_id} · role=${e.metadata?.role ?? "-"} · bridge_id=${e.bridge_id ?? "null"}`);
+    log("endpoint", `${e.endpoint_id} · agent_id=${e.agent_id ?? "-"} · bridge_id=${e.bridge_id ?? "null"}`);
   }
   console.log();
   process.exit(0);
@@ -342,7 +396,7 @@ async function endpointsPhase(): Promise<void> {
 const table: Record<string, () => Promise<void>> = {
   provision,
   connect,
-  "emit-probe": emitProbe,
+  job3,
   "stream-probe": streamProbe,
   endpoints: endpointsPhase,
   "send-work": sendWorkPhase,
@@ -350,7 +404,7 @@ const table: Record<string, () => Promise<void>> = {
 };
 const run = table[phase];
 if (!run) {
-  console.error(`usage: live-walk.ts <provision|connect|emit-probe|stream-probe|endpoints|send-work|answer>`);
+  console.error(`usage: live-walk.ts <provision|connect|job3|stream-probe|endpoints|send-work|answer>`);
   process.exit(2);
 }
 run().catch((err) => {

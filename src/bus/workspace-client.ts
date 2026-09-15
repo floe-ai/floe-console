@@ -20,7 +20,7 @@ export interface WorkspaceClientOptions {
 export interface Endpoint {
   readonly endpoint_id: string;
   readonly bridge_id: string | null;
-  readonly metadata?: { readonly role?: string } & Record<string, unknown>;
+  readonly agent_id?: string;
   readonly [key: string]: unknown;
 }
 
@@ -86,11 +86,17 @@ export class WorkspaceClient {
     return Array.isArray(body) ? body : (body.endpoints ?? []);
   }
 
-  /** The operator Endpoint: role === "operator", bridgeless (bridge_id null). */
+  /**
+   * The operator Actor's Endpoint. The operator is an ordinary Actor (no role
+   * marker): registration provisions it at `actor:<workspace_id>:operator` with
+   * `agent_id: "operator"`, and a client discovers it by ordinary Actor listing,
+   * matching the substrate id convention — not by any human/role field.
+   */
   async findOperatorEndpoint(): Promise<Endpoint | null> {
+    const operatorId = `actor:${this.options.workspaceId}:operator`;
     const endpoints = await this.listEndpoints();
     return (
-      endpoints.find((e) => e.metadata?.role === "operator" && e.bridge_id === null) ?? null
+      endpoints.find((e) => e.endpoint_id === operatorId || e.agent_id === "operator") ?? null
     );
   }
 
@@ -103,11 +109,11 @@ export class WorkspaceClient {
       }),
       { headers: this.authHeaders() },
     );
-    const body = await this.json<{ pending_responses?: PendingResponse[] } | PendingResponse[]>(
+    const body = await this.json<{ pending?: PendingResponse[] } | PendingResponse[]>(
       res,
       "list pending responses",
     );
-    return Array.isArray(body) ? body : (body.pending_responses ?? []);
+    return Array.isArray(body) ? body : (body.pending ?? []);
   }
 
   /**
