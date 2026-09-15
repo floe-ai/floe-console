@@ -201,9 +201,20 @@ export function MainSurface({
   }
 
   if (mode.name === "send") {
+    const op = operator;
+    if (op === null || op === "unknown") {
+      return (
+        <Box flexDirection="column" gap={1}>
+          {header}
+          <Text color="yellow">No operator endpoint to send from yet.</Text>
+          <Text dimColor>Press q to quit.</Text>
+        </Box>
+      );
+    }
     return (
       <SendWork
         client={client}
+        operatorEndpointId={op.endpoint_id}
         onDone={() => setMode({ name: "browse" })}
       />
     );
@@ -274,7 +285,15 @@ function AnswerPanel({
   );
 }
 
-function SendWork({ client, onDone }: { client: WorkspaceClient; onDone: () => void }): JSX.Element {
+function SendWork({
+  client,
+  operatorEndpointId,
+  onDone,
+}: {
+  client: WorkspaceClient;
+  operatorEndpointId: string;
+  onDone: () => void;
+}): JSX.Element {
   const [endpoints, setEndpoints] = useState<Endpoint[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [target, setTarget] = useState<Endpoint | null>(null);
@@ -337,9 +356,10 @@ function SendWork({ client, onDone }: { client: WorkspaceClient; onDone: () => v
           onSubmit={async () => {
             if (!body.trim()) return;
             try {
-              await client.emit({
-                destination_endpoint_id: target.endpoint_id,
-                payload: { body },
+              await client.sendWork({
+                sourceEndpointId: operatorEndpointId,
+                targetEndpointId: target.endpoint_id,
+                body,
               });
               setSent(true);
             } catch (err) {

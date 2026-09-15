@@ -178,6 +178,99 @@ async function emitProbe(): Promise<void> {
 }
 
 /**
+ * Send work to the floe actor through the real WorkspaceClient.sendWork, and
+ * print the Bus's actual emit response. Exercises job 2 (send work in) and
+ * records the emit contract now that F-DOC is closed. The message asks the actor
+ * to seek operator confirmation, so a model-driven turn should produce a request
+ * addressed to the operator (a pending response to answer).
+ *
+ * The console emits AS the operator. If no operator endpoint is listed yet, use
+ * the deterministic id the protocol doc's example uses (actor:<workspace>:operator).
+ */
+async function sendWorkPhase(): Promise<void> {
+  const { state, endpoints } = await authenticate();
+  if (state.kind !== "ready") {
+    console.log(`\nnot ready (${state.kind}); cannot send work.\n`);
+    process.exit(1);
+  }
+  const { WorkspaceClient, BusRequestError } = await import("../src/bus/workspace-client.js");
+  const client = new WorkspaceClient({
+    httpBaseUrl: endpoints.httpBaseUrl,
+    bearerToken: state.bearer.token,
+    workspaceId: state.workspace.workspace_id,
+  });
+  const operator = await client.findOperatorEndpoint();
+  const operatorId = operator?.endpoint_id ?? `actor:${state.workspace.workspace_id}:operator`;
+  log("operator endpoint", operator ? operator.endpoint_id : `(none listed; using ${operatorId})`);
+
+  const target = process.env.FLOE_WALK_TARGET ?? `actor:${state.workspace.workspace_id}:floe`;
+  const body =
+    process.env.FLOE_WALK_MESSAGE ??
+    "Before doing anything else, use your request capability to ask me (the operator) to confirm: should you proceed? Wait for my answer.";
+  log("target endpoint", target);
+  try {
+    const result = await client.sendWork({ sourceEndpointId: operatorId, targetEndpointId: target, body });
+    console.log("\nBus emit response (job 2, send work):");
+    log("result", result);
+  } catch (err) {
+    if (err instanceof BusRequestError) {
+      log("emit refused status", err.status);
+      log("emit refused message", err.message);
+    } else {
+      log("emit error", err instanceof Error ? err.message : String(err));
+    }
+  }
+  console.log("\nsend-work complete.\n");
+  process.exit(0);
+}
+
+/**
+ * Answer the first pending question addressed to the operator, through the real
+ * WorkspaceClient.emitOperatorReply, and print the Bus response + whether the
+ * pending row is resolved afterward. Closes job 3 on the wire.
+ */
+async function answerPhase(): Promise<void> {
+  const { state, endpoints } = await authenticate();
+  if (state.kind !== "ready") {
+    console.log(`\nnot ready (${state.kind}); cannot answer.\n`);
+    process.exit(1);
+  }
+  const { WorkspaceClient } = await import("../src/bus/workspace-client.js");
+  const client = new WorkspaceClient({
+    httpBaseUrl: endpoints.httpBaseUrl,
+    bearerToken: state.bearer.token,
+    workspaceId: state.workspace.workspace_id,
+  });
+  const operator = await client.findOperatorEndpoint();
+  if (!operator) {
+    console.log("\nno operator endpoint; nothing can be waiting. Stopping.\n");
+    process.exit(3);
+  }
+  const pending = await client.listPendingForOperator(operator.endpoint_id);
+  log("pending count", pending.length);
+  if (pending.length === 0) {
+    console.log("\nnothing waiting to answer.\n");
+    process.exit(0);
+  }
+  const first = pending[0]!;
+  log("answering correlation", first.correlation_id);
+  log("asked by", first.waiting_endpoint_id);
+  const result = await client.emitOperatorReply({
+    operatorEndpointId: operator.endpoint_id,
+    waitingEndpointId: first.waiting_endpoint_id,
+    correlationId: first.correlation_id,
+    body: process.env.FLOE_WALK_ANSWER ?? "Yes, proceed. — the console operator",
+  });
+  console.log("\nBus emit response (job 3, answer):");
+  log("result", result);
+  const after = await client.listPendingForOperator(operator.endpoint_id);
+  log("pending after answer", after.length);
+  log("resolved on substrate", String(!after.some((r) => r.correlation_id === first.correlation_id)));
+  console.log("\nanswer complete.\n");
+  process.exit(0);
+}
+
+/**
  * Stream reject probe: drive the real EventStream module against the running
  * Bus with a bearer it will refuse, and record the socket lifecycle + the close
  * code. This proves the transport, the mandatory `authenticate` frame, and the
@@ -225,15 +318,39 @@ async function streamProbe(): Promise<void> {
   process.exit(0);
 }
 
+async function endpointsPhase(): Promise<void> {
+  const { state, endpoints } = await authenticate();
+  if (state.kind !== "ready") {
+    console.log(`\nnot ready (${state.kind}); cannot list endpoints.\n`);
+    process.exit(1);
+  }
+  const { WorkspaceClient } = await import("../src/bus/workspace-client.js");
+  const client = new WorkspaceClient({
+    httpBaseUrl: endpoints.httpBaseUrl,
+    bearerToken: state.bearer.token,
+    workspaceId: state.workspace.workspace_id,
+  });
+  const all = await client.listEndpoints();
+  console.log(`\nendpoints (${all.length}):`);
+  for (const e of all) {
+    log("endpoint", `${e.endpoint_id} · role=${e.metadata?.role ?? "-"} · bridge_id=${e.bridge_id ?? "null"}`);
+  }
+  console.log();
+  process.exit(0);
+}
+
 const table: Record<string, () => Promise<void>> = {
   provision,
   connect,
   "emit-probe": emitProbe,
   "stream-probe": streamProbe,
+  endpoints: endpointsPhase,
+  "send-work": sendWorkPhase,
+  answer: answerPhase,
 };
 const run = table[phase];
 if (!run) {
-  console.error(`usage: live-walk.ts <provision|connect|emit-probe|stream-probe>`);
+  console.error(`usage: live-walk.ts <provision|connect|emit-probe|stream-probe|endpoints|send-work|answer>`);
   process.exit(2);
 }
 run().catch((err) => {

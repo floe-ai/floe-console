@@ -6,8 +6,9 @@
  *   - list what actors are waiting on the operator to answer,
  *   - emit a correlated reply (an answer) or a new delivery (sending work).
  *
- * It carries a bearer and nothing more privileged. Every shape here is from the
- * protocol doc / Bus API; this module invents no routes.
+ * It carries a bearer and nothing more privileged. Every shape here is the
+ * documented Bus contract (client-identity-protocol.md + bus-api.md); this
+ * module invents no routes and carries no unverified seam.
  */
 
 export interface WorkspaceClientOptions {
@@ -39,6 +40,14 @@ export class BusRequestError extends Error {
     super(message);
     this.name = "BusRequestError";
   }
+}
+
+/** The Bus's 202 answer to a successful emit. */
+export interface EmitResult {
+  readonly ok: boolean;
+  readonly event_id?: string;
+  readonly deliveries_created?: number;
+  readonly [key: string]: unknown;
 }
 
 export class WorkspaceClient {
@@ -103,51 +112,52 @@ export class WorkspaceClient {
 
   /**
    * Emit a correlated reply as the operator Endpoint, answering the actor that
-   * is waiting.
-   *
-   * SEAM — UNVERIFIED WIRE SHAPE (finding F-DOC). The identity protocol names
-   * the route (`POST /v1/events/emit`), the authority (a workspace_operation
-   * bearer may emit as the operator Endpoint), and the fields to match
-   * (correlation_id, source = operator Endpoint, destination = waiting actor
-   * Endpoint) — but no document gives the literal request body: the key names,
-   * where the human's answer text goes, or the event `type`. bus-api.md points
-   * product clients at runtime operation discovery (`context.communication.emit`)
-   * instead, and the two are not reconciled. The body below is the best reading
-   * of the named fields and is deliberately the ONLY place that shape lives, so
-   * the correct schema drops in here once the doc is fixed or the running Bus
-   * confirms it. It is not asserted to be correct.
+   * is waiting — the documented `POST /v1/events/emit` body from
+   * client-identity-protocol.md ("Acting as the operator"): a `response` event
+   * whose `content.text` carries the human's answer, addressed to the waiting
+   * Endpoint and naming the pending `correlation_id`. On success the pending row
+   * moves to `status: "resolved"`.
    */
   async emitOperatorReply(params: {
     operatorEndpointId: string;
     waitingEndpointId: string;
     correlationId: string;
     body: string;
-  }): Promise<void> {
-    const res = await fetch(this.url("/v1/events/emit"), {
-      method: "POST",
-      headers: this.authHeaders({ "content-type": "application/json" }),
-      body: JSON.stringify({
-        workspace_id: this.options.workspaceId,
-        source_endpoint_id: params.operatorEndpointId,
-        destination_endpoint_id: params.waitingEndpointId,
-        correlation_id: params.correlationId,
-        payload: { body: params.body },
-      }),
+  }): Promise<EmitResult> {
+    return this.emit({
+      type: "response",
+      source_endpoint_id: params.operatorEndpointId,
+      destination: { kind: "endpoint", endpoint_id: params.waitingEndpointId },
+      correlation_id: params.correlationId,
+      content: { text: params.body },
     });
-    await this.json<unknown>(res, "emit reply");
   }
 
   /**
-   * Raw emit, for sending work into an actor Endpoint (a new delivery).
-   * SEAM — same unverified `/v1/events/emit` body shape as emitOperatorReply
-   * (finding F-DOC).
+   * Send work to an Endpoint as a direct (non-graph) Event — the same
+   * `POST /v1/events/emit` ingress, addressed to the target Endpoint with the
+   * message in `content.text`.
    */
-  async emit(event: Record<string, unknown>): Promise<unknown> {
+  async sendWork(params: { sourceEndpointId: string; targetEndpointId: string; body: string }): Promise<EmitResult> {
+    return this.emit({
+      type: "message",
+      source_endpoint_id: params.sourceEndpointId,
+      destination: { kind: "endpoint", endpoint_id: params.targetEndpointId },
+      content: { text: params.body },
+    });
+  }
+
+  /**
+   * The canonical Event command emit. The Bus answers `202` with
+   * `{ ok, event_id, deliveries_created }`; a schema mismatch is `400`
+   * `invalid_event_command`. `workspace_id` is always the bearer's workspace.
+   */
+  async emit(event: Record<string, unknown>): Promise<EmitResult> {
     const res = await fetch(this.url("/v1/events/emit"), {
       method: "POST",
       headers: this.authHeaders({ "content-type": "application/json" }),
       body: JSON.stringify({ workspace_id: this.options.workspaceId, ...event }),
     });
-    return this.json<unknown>(res, "emit");
+    return this.json<EmitResult>(res, "emit");
   }
 }
