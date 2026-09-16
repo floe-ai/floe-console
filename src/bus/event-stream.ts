@@ -1,5 +1,5 @@
 import WebSocket from "ws";
-import { isStreamEntry, type StreamEntry } from "./types.js";
+import { isStreamEntry, isDeliveryAvailable, type StreamEntry, type DeliveryAvailable } from "./types.js";
 
 /**
  * The live event stream over GET /v1/events/stream.
@@ -28,6 +28,12 @@ export interface EventStreamHandlers {
   onEntry(entry: StreamEntry): void;
   onCaughtUp(cursor: string | null): void;
   onStatus(status: StreamStatus): void;
+  /**
+   * A delivery is waiting for a client-executed Endpoint. Optional: only the
+   * answer path (a client executing an Actor) reacts to this; a plain reader
+   * does not. This is the push that replaces polling for work.
+   */
+  onDeliveryAvailable?(frame: DeliveryAvailable): void;
 }
 
 /** Minimal socket surface, so tests can drive the client without a real network. */
@@ -125,6 +131,11 @@ export class EventStream {
     if (isStreamEntry(frame)) {
       this.lastCursor = frame.cursor;
       this.options.handlers.onEntry(frame);
+      return;
+    }
+
+    if (isDeliveryAvailable(frame)) {
+      this.options.handlers.onDeliveryAvailable?.(frame);
       return;
     }
 

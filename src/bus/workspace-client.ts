@@ -1,14 +1,14 @@
 /**
- * The read + emit surface a `workspace_operation` bearer is allowed to use, per
- * client-identity-protocol.md ("Acting as the operator"). Three concerns:
+ * The read/act surface a `workspace_operation` bearer is allowed to use, per
+ * client-identity-protocol.md ("Answering as a client-executed Actor") and
+ * bus-api.md. A client is a runtime like any other: it does not assemble reply
+ * events. It discovers the Actor its identity executes, learns of work by push,
+ * claims a delivery, and ends the turn by delivery id and text alone. The
+ * substrate owns correlation and resumes the asking Actor in its own context.
  *
- *   - find the operator Endpoint in a workspace,
- *   - list what actors are waiting on the operator to answer,
- *   - emit a correlated reply (an answer) or a new delivery (sending work).
- *
- * It carries a bearer and nothing more privileged. Every shape here is the
- * documented Bus contract (client-identity-protocol.md + bus-api.md); this
- * module invents no routes and carries no unverified seam.
+ * This module carries a bearer and nothing more privileged, and invents no
+ * routes: discovery is ordinary endpoint listing, the answer is the documented
+ * turn-result route, and sending work is the documented emit ingress.
  */
 
 export interface WorkspaceClientOptions {
@@ -17,18 +17,35 @@ export interface WorkspaceClientOptions {
   readonly workspaceId: string;
 }
 
+/**
+ * An endpoint from ordinary Actor listing. A **client-executed** Actor — the one
+ * this identity runs — is the entry whose resolved runtime adapter is `client`;
+ * a model-backed Actor resolves to a Bridge adapter (e.g. `floe-runtime`). There
+ * is no role field and the id is opaque: never construct it from a convention.
+ */
 export interface Endpoint {
   readonly endpoint_id: string;
+  readonly adapter_id?: string;
+  readonly name?: string;
   readonly bridge_id: string | null;
-  readonly agent_id?: string;
   readonly [key: string]: unknown;
 }
 
-/** A request an actor addressed to the operator and is now awaiting a reply on. */
-export interface PendingResponse {
-  readonly correlation_id: string;
-  readonly destination_endpoint_id: string;
-  readonly waiting_endpoint_id: string;
+/** One event carried in a claimed delivery — the asking Actor's request. */
+export interface DeliveredEvent {
+  readonly type?: string;
+  readonly content?: { readonly text?: string } & Record<string, unknown>;
+  readonly [key: string]: unknown;
+}
+
+/**
+ * A delivery waiting for a client-executed Endpoint. `delivery_id` is what a
+ * turn result is reported against; `events` carries the request(s) to answer.
+ */
+export interface Delivery {
+  readonly delivery_id: string;
+  readonly endpoint_id: string;
+  readonly events: DeliveredEvent[];
   readonly [key: string]: unknown;
 }
 
@@ -42,11 +59,17 @@ export class BusRequestError extends Error {
   }
 }
 
-/** The Bus's 202 answer to a successful emit. */
+/** The Bus's 202 answer to an accepted emit (sending work). */
 export interface EmitResult {
   readonly ok: boolean;
   readonly event_id?: string;
   readonly deliveries_created?: number;
+  readonly [key: string]: unknown;
+}
+
+/** The Bus's 202 answer to a turn ending (answering). */
+export interface TurnResult {
+  readonly ok: boolean;
   readonly [key: string]: unknown;
 }
 
@@ -77,7 +100,7 @@ export class WorkspaceClient {
     return (await res.json()) as T;
   }
 
-  /** All endpoints in the workspace. */
+  /** All endpoints (Actors) in the workspace, from ordinary listing. */
   async listEndpoints(): Promise<Endpoint[]> {
     const res = await fetch(this.url(`/v1/workspaces/${this.options.workspaceId}/endpoints`), {
       headers: this.authHeaders(),
@@ -87,64 +110,62 @@ export class WorkspaceClient {
   }
 
   /**
-   * The operator Actor's Endpoint. The operator is an ordinary Actor (no role
-   * marker): registration provisions it at `actor:<workspace_id>:operator` with
-   * `agent_id: "operator"`, and a client discovers it by ordinary Actor listing,
-   * matching the substrate id convention — not by any human/role field.
+   * The Actor this identity executes: the one whose resolved runtime adapter is
+   * `client`. Found by ordinary listing, never by a naming convention or a role
+   * field. Returns null if this workspace exposes no client-executed Actor.
    */
-  async findOperatorEndpoint(): Promise<Endpoint | null> {
-    const operatorId = `actor:${this.options.workspaceId}:operator`;
+  async findClientActor(): Promise<Endpoint | null> {
     const endpoints = await this.listEndpoints();
-    return (
-      endpoints.find((e) => e.endpoint_id === operatorId || e.agent_id === "operator") ?? null
-    );
-  }
-
-  /** Requests actors have addressed to the operator Endpoint and await a reply on. */
-  async listPendingForOperator(operatorEndpointId: string): Promise<PendingResponse[]> {
-    const res = await fetch(
-      this.url("/v1/pending-responses", {
-        workspace_id: this.options.workspaceId,
-        destination_endpoint_id: operatorEndpointId,
-      }),
-      { headers: this.authHeaders() },
-    );
-    const body = await this.json<{ pending?: PendingResponse[] } | PendingResponse[]>(
-      res,
-      "list pending responses",
-    );
-    return Array.isArray(body) ? body : (body.pending ?? []);
+    return endpoints.find((e) => e.adapter_id === "client") ?? null;
   }
 
   /**
-   * Emit a correlated reply as the operator Endpoint, answering the actor that
-   * is waiting — the documented `POST /v1/events/emit` body from
-   * client-identity-protocol.md ("Acting as the operator"): a `response` event
-   * whose `content.text` carries the human's answer, addressed to the waiting
-   * Endpoint and naming the pending `correlation_id`. On success the pending row
-   * moves to `status: "resolved"`.
+   * Claim the deliveries waiting for a client-executed Endpoint. The bundle
+   * carries the request Events (the questions) in `events`; the text the asking
+   * Actor put is each event's `content.text`. Claiming only ever succeeds for a
+   * client-executed Endpoint in this identity's own admitted workspace.
    */
-  async emitOperatorReply(params: {
-    operatorEndpointId: string;
-    waitingEndpointId: string;
-    correlationId: string;
+  async claimDeliveries(endpointId: string): Promise<Delivery[]> {
+    const res = await fetch(this.url("/v1/delivery/claim", { endpoint_id: endpointId }), {
+      headers: this.authHeaders(),
+    });
+    const body = await this.json<{ deliveries?: Delivery[] }>(res, "claim delivery");
+    return body.deliveries ?? [];
+  }
+
+  /**
+   * End the turn — the whole answer. `delivery_id` and `text` are all that is
+   * required; there is no type, source, destination, correlation id or context.
+   * The substrate correlates by the delivery and resumes the asking Actor in the
+   * context it asked from. This is the same shape a model runtime reports a turn.
+   */
+  async endTurn(params: {
+    deliveryId: string;
+    text: string;
+    outcome?: "completed" | "failed";
+    metadata?: Record<string, unknown>;
+  }): Promise<TurnResult> {
+    const body: Record<string, unknown> = { delivery_id: params.deliveryId, text: params.text };
+    if (params.outcome) body.outcome = params.outcome;
+    if (params.metadata) body.metadata = params.metadata;
+    const res = await fetch(this.url("/v1/runtime/turn-result"), {
+      method: "POST",
+      headers: this.authHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify(body),
+    });
+    return this.json<TurnResult>(res, "turn result");
+  }
+
+  /**
+   * Send work to an Endpoint as a direct (non-graph) Event — the documented
+   * `POST /v1/events/emit` ingress, addressed to the target with the message in
+   * `content.text`. This is job 2 (send work), distinct from answering.
+   */
+  async sendWork(params: {
+    sourceEndpointId: string;
+    targetEndpointId: string;
     body: string;
   }): Promise<EmitResult> {
-    return this.emit({
-      type: "response",
-      source_endpoint_id: params.operatorEndpointId,
-      destination: { kind: "endpoint", endpoint_id: params.waitingEndpointId },
-      correlation_id: params.correlationId,
-      content: { text: params.body },
-    });
-  }
-
-  /**
-   * Send work to an Endpoint as a direct (non-graph) Event — the same
-   * `POST /v1/events/emit` ingress, addressed to the target Endpoint with the
-   * message in `content.text`.
-   */
-  async sendWork(params: { sourceEndpointId: string; targetEndpointId: string; body: string }): Promise<EmitResult> {
     return this.emit({
       type: "message",
       source_endpoint_id: params.sourceEndpointId,
@@ -154,9 +175,10 @@ export class WorkspaceClient {
   }
 
   /**
-   * The canonical Event command emit. The Bus answers `202` with
-   * `{ ok, event_id, deliveries_created }`; a schema mismatch is `400`
-   * `invalid_event_command`. `workspace_id` is always the bearer's workspace.
+   * The canonical Event command emit (communication ingress). The Bus answers
+   * `202` with `{ ok, event_id, deliveries_created }`; a schema mismatch is
+   * `400 invalid_event_command`. `workspace_id` is always the bearer's workspace.
+   * Emit is NOT how a request is answered — that is `endTurn`.
    */
   async emit(event: Record<string, unknown>): Promise<EmitResult> {
     const res = await fetch(this.url("/v1/events/emit"), {
@@ -166,4 +188,13 @@ export class WorkspaceClient {
     });
     return this.json<EmitResult>(res, "emit");
   }
+}
+
+/** The question the asking Actor put, taken from a delivered event's content.text. */
+export function questionText(delivery: Delivery): string {
+  for (const ev of delivery.events ?? []) {
+    const t = ev.content?.text;
+    if (typeof t === "string" && t.trim()) return t.trim();
+  }
+  return `request on delivery ${delivery.delivery_id}`;
 }
