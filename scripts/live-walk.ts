@@ -8,18 +8,19 @@
  * exactly where the product would.
  *
  * It is unprivileged: it authenticates as an ordinary client and nothing else.
- * Admission of the generated npub is done out of band by the operator with
- * floe-cli, which is why this is phase-controlled and shares one home across
- * phases:
+ * A fresh key is admitted to a workspace the same way first run does it — by
+ * registering a folder, which is the act of joining it — so no operator step is
+ * needed to get in:
  *
  *   1) tsx scripts/live-walk.ts provision      # generate key, print npub
- *   2) (operator) floe identity add --pubkey <npub> --workspace <id> ...
+ *   2) tsx scripts/live-walk.ts register        # register-and-join a folder -> ready
  *   3) tsx scripts/live-walk.ts connect         # handshake, stream, discovery
  *   4) tsx scripts/live-walk.ts job3            # full loop: ask -> answer -> resume
  *
  * Home + passphrase come from env so nothing is hand-baked into a screen:
  *   FLOE_CONSOLE_HOME     throwaway identity dir (required)
- *   FLOE_WALK_PASSPHRASE  passphrase for the throwaway key (required)
+ *   FLOE_WALK_PASSPHRASE  passphrase for the throwaway key (blank = device auth)
+ *   FLOE_WALK_FOLDER      absolute folder to register as a workspace (register phase)
  *   FLOE_WALK_WORKSPACE   optional: select a workspace by id or name
  */
 import type { AuthSessionState } from "../src/session/auth-session.js";
@@ -42,7 +43,8 @@ function log(label: string, value: unknown): void {
 }
 
 async function provision(): Promise<void> {
-  need("FLOE_WALK_PASSPHRASE", passphrase);
+  // A blank passphrase is a first-class choice (device auth), so it is not
+  // required here — an empty value provisions a device-protected identity.
   const { generateRecoveryPhrase } = await import("../src/identity/mnemonic.js");
   const { provisionIdentity } = await import("../src/identity/provision.js");
   const { identityExists } = await import("../src/identity/store-fs.js");
@@ -66,7 +68,6 @@ async function authenticate(): Promise<{
   state: AuthSessionState;
   endpoints: { httpBaseUrl: string; wsBaseUrl: string; source: string };
 }> {
-  need("FLOE_WALK_PASSPHRASE", passphrase);
   const { createServices } = await import("../src/app/services.js");
   const { endpoints, session } = createServices();
   log("bus http", `${endpoints.httpBaseUrl} (${endpoints.source})`);
@@ -90,11 +91,56 @@ async function authenticate(): Promise<{
   return { state, endpoints };
 }
 
+/**
+ * Register-and-join a folder as a workspace, live, through the real session —
+ * the same call first run makes. Proves the seam end to end: unlock -> land in
+ * needs-workspace -> registerAndJoin(folder) -> the three honest outcomes ->
+ * checkNow reaches ready. No operator admission step; registering is joining.
+ */
+async function register(): Promise<void> {
+  const folder = need("FLOE_WALK_FOLDER", process.env.FLOE_WALK_FOLDER ?? "");
+  const { createServices } = await import("../src/app/services.js");
+  const { session, endpoints } = createServices();
+  log("bus http", `${endpoints.httpBaseUrl} (${endpoints.source})`);
+  session.subscribe((s) => log("session ->", s.kind + ("message" in s && s.message ? `: ${s.message}` : "")));
+  session.init();
+  await session.unlock(passphrase);
+
+  let state = session.getState();
+  if (state.kind === "ready") {
+    log("already in a workspace", `${state.workspace.name} (${state.workspace.workspace_id})`);
+    process.exit(0);
+  }
+  if (state.kind !== "needs-workspace") {
+    console.log(`\nunexpected state (${state.kind}); cannot register.\n`);
+    process.exit(1);
+  }
+
+  const result = await session.registerAndJoin({
+    locator: folder,
+    displayName: process.env.FLOE_WALK_NAME ?? "walker",
+    name: process.env.FLOE_WALK_WORKSPACE || undefined,
+  });
+  log("register outcome", "reason" in result ? `${result.kind}: ${(result as { reason?: string; message?: string }).reason ?? (result as { message?: string }).message}` : result.kind);
+
+  if (result.kind === "ready" || result.kind === "pending") {
+    state = await session.checkNow();
+    if (state.kind === "ready") {
+      log("joined workspace", `${state.workspace.name} (${state.workspace.workspace_id})`);
+      log("materialization", result.kind);
+      console.log("\nregister walk complete.\n");
+      process.exit(0);
+    }
+  }
+  console.log(`\nregister did not reach ready (outcome ${result.kind}).\n`);
+  process.exit(result.kind === "pending" ? 0 : 1);
+}
+
 async function connect(): Promise<void> {
   const { state, endpoints } = await authenticate();
   if (state.kind !== "ready") {
     console.log(`\nnot ready (${state.kind}). Stopping — see session state above.\n`);
-    process.exit(state.kind === "awaiting-admission" ? 3 : 1);
+    process.exit(state.kind === "needs-workspace" ? 3 : 1);
   }
   log("workspace", `${state.workspace.name} (${state.workspace.workspace_id})`);
   log("bearer expires", state.bearer.expiresAt ?? "(no expiry)");
@@ -353,6 +399,7 @@ async function endpointsPhase(): Promise<void> {
 
 const table: Record<string, () => Promise<void>> = {
   provision,
+  register,
   connect,
   job3,
   "stream-probe": streamProbe,
@@ -360,7 +407,7 @@ const table: Record<string, () => Promise<void>> = {
 };
 const run = table[phase];
 if (!run) {
-  console.error(`usage: live-walk.ts <provision|connect|job3|stream-probe|endpoints>`);
+  console.error(`usage: live-walk.ts <provision|register|connect|job3|stream-probe|endpoints>`);
   process.exit(2);
 }
 run().catch((err) => {
