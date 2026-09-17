@@ -63,6 +63,37 @@ async function provision(): Promise<void> {
   console.log("\nAdmit it as operator, then run: live-walk.ts connect\n");
 }
 
+/**
+ * Reveal the stored recovery phrase (the backup half). This prints the phrase
+ * deliberately — the harness identities are throwaway and the round-trip proof
+ * needs the phrase to carry to a clean profile. The real console shows it on
+ * screen, never on stdout.
+ */
+async function reveal(): Promise<void> {
+  const { revealRecoveryPhrase } = await import("../src/identity/provision.js");
+  const phrase = revealRecoveryPhrase(passphrase);
+  console.log(phrase);
+}
+
+/**
+ * Import an existing recovery phrase onto this (clean) profile — the restore
+ * path first run's "Restore from a recovery phrase" takes. Same key, so the
+ * imported identity reaches whatever workspaces it is already admitted to
+ * without registering anything.
+ */
+async function importPhrase(): Promise<void> {
+  const phrase = need("FLOE_WALK_IMPORT_PHRASE", process.env.FLOE_WALK_IMPORT_PHRASE ?? "");
+  const { provisionIdentity } = await import("../src/identity/provision.js");
+  const { identityExists } = await import("../src/identity/store-fs.js");
+  if (identityExists()) {
+    console.log("identity already present in this home; refusing to overwrite");
+    process.exit(1);
+  }
+  const { npub } = provisionIdentity(phrase, passphrase);
+  log("imported npub", npub);
+  console.log("\nimport complete; run: live-walk.ts connect\n");
+}
+
 /** Drive the AuthSession handshake to a terminal state and return it. */
 async function authenticate(): Promise<{
   state: AuthSessionState;
@@ -399,6 +430,8 @@ async function endpointsPhase(): Promise<void> {
 
 const table: Record<string, () => Promise<void>> = {
   provision,
+  reveal,
+  import: importPhrase,
   register,
   connect,
   job3,
@@ -407,7 +440,7 @@ const table: Record<string, () => Promise<void>> = {
 };
 const run = table[phase];
 if (!run) {
-  console.error(`usage: live-walk.ts <provision|register|connect|job3|stream-probe|endpoints>`);
+  console.error(`usage: live-walk.ts <provision|reveal|import|register|connect|job3|stream-probe|endpoints>`);
   process.exit(2);
 }
 run().catch((err) => {
