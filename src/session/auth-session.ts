@@ -1,5 +1,12 @@
 import type { Event as NostrEvent } from "nostr-tools/pure";
-import type { ChallengeGrant, AuthenticateResult, WorkspaceMembership, IdentitySummary } from "../bus/identity-auth.js";
+import type {
+  ChallengeGrant,
+  AuthenticateResult,
+  WorkspaceMembership,
+  IdentitySummary,
+  RegisterWorkspaceInput,
+  RegisterWorkspaceResult,
+} from "../bus/identity-auth.js";
 import { IdentityAuthError } from "../bus/identity-auth.js";
 import type { IdentityFile } from "../identity/key-store.js";
 import { decryptSecretKey } from "../identity/key-store.js";
@@ -44,10 +51,12 @@ export type AuthSessionState =
       readonly workspace: WorkspaceMembership;
       readonly bearer: BearerGrant;
     }
-  // Signature was valid but the key is not (yet) admitted, or was revoked. The
-  // substrate cannot tell these apart, and admission is a human action taken by
-  // the operator, so the honest mechanism is a human-triggered "Check now".
-  | { readonly kind: "awaiting-admission"; readonly npub: string; readonly message: string }
+  // Signature was valid but the key is admitted to no workspace yet. Under the
+  // register-and-join model the honest next action is not to wait for an
+  // operator but to register a folder (which is itself the act of joining it),
+  // so this state drives the first-run workspace step. A revoked key also lands
+  // here — the substrate cannot tell the two apart — and the same action applies.
+  | { readonly kind: "needs-workspace"; readonly npub: string; readonly message: string }
   | { readonly kind: "error"; readonly npub: string | null; readonly message: string };
 
 export type AuthSessionListener = (state: AuthSessionState) => void;
@@ -60,6 +69,10 @@ export interface AuthSessionDeps {
   transport: {
     requestChallenge(): Promise<ChallengeGrant>;
     authenticate(authEvent: NostrEvent, workspaceId?: string): Promise<AuthenticateResult>;
+    registerWorkspace(
+      authEvent: NostrEvent,
+      input: RegisterWorkspaceInput,
+    ): Promise<RegisterWorkspaceResult>;
   };
   sign?: (grant: ChallengeGrant, secretKey: Uint8Array) => NostrEvent;
   load?: () => IdentityFile | null;
@@ -110,10 +123,26 @@ export class AuthSession {
     return () => this.listeners.delete(listener);
   }
 
-  /** Determine whether a key exists on this machine. Call once at startup. */
+  /**
+   * Determine whether a key exists on this machine. Call once at startup.
+   *
+   * A device-protected identity (blank passphrase, D-DEVICE-AUTH) carries no
+   * human secret, so there is nothing to prompt for: unlock it silently with an
+   * empty passphrase and go straight into the handshake. A passphrase-protected
+   * identity drops to `locked` and waits for the human.
+   */
   init(): AuthSessionState {
     const file = this.load();
-    this.setState(file ? { kind: "locked", npub: file.npub } : { kind: "no-key" });
+    if (!file) {
+      this.setState({ kind: "no-key" });
+      return this.state;
+    }
+    if (file.protection === "device") {
+      this.setState({ kind: "authenticating", npub: file.npub });
+      void this.unlock("");
+      return this.state;
+    }
+    this.setState({ kind: "locked", npub: file.npub });
     return this.state;
   }
 
@@ -142,10 +171,35 @@ export class AuthSession {
     return this.authenticateFlow();
   }
 
-  /** Human-triggered admission re-check (C1: no polling loop). */
+  /** Human-triggered re-authentication (C1: no polling loop). */
   async checkNow(): Promise<AuthSessionState> {
     if (!this.secretKey) return this.state;
     return this.authenticateFlow();
+  }
+
+  /**
+   * Register a folder as a workspace and, by that act, join it — the first-run
+   * path out of `needs-workspace`. Signs a fresh challenge with the unlocked key
+   * and posts it to the register-and-join route. This mints no bearer and does
+   * not change session state; it returns the raw result so the caller can show
+   * the honest outcome (a `ready` folder, a `pending` one whose bridge has not
+   * confirmed materialisation yet, or a real failure). On a `ready`/`pending`
+   * result the key is durably admitted to exactly one workspace, so the caller
+   * reaches `ready` by calling `checkNow()` — the ordinary handshake — which
+   * cannot race because admission is durable before the route answers.
+   *
+   * Throws on a transport/challenge failure (e.g. the bus is unreachable); the
+   * caller surfaces that as a retryable error rather than a bad folder.
+   */
+  async registerAndJoin(input: RegisterWorkspaceInput): Promise<RegisterWorkspaceResult> {
+    const secretKey = this.secretKey;
+    const npub = this.npub;
+    if (!secretKey || !npub) {
+      return { kind: "invalid", error: "no_key", message: "No identity is unlocked." };
+    }
+    const grant = await this.deps.transport.requestChallenge();
+    const authEvent = this.sign(grant, secretKey);
+    return this.deps.transport.registerWorkspace(authEvent, input);
   }
 
   /** Choose a workspace when several memberships were offered. */
@@ -173,31 +227,35 @@ export class AuthSession {
   }
 
   private async authenticateFlow(workspaceId?: string): Promise<AuthSessionState> {
-    const secretKey = this.secretKey;
     const npub = this.npub;
-    if (!secretKey || !npub) {
+    if (!this.secretKey || !npub) {
       this.setState({ kind: "no-key" });
       return this.state;
     }
+    // Sign with a private copy of the key. adoptKey/lock zero the stored buffer,
+    // and there is an await (requestChallenge) between capturing the key and
+    // signing, so a concurrent unlock (e.g. init's device auto-unlock racing an
+    // explicit one, or a refresh overlapping) would otherwise zero the buffer
+    // mid-flight and produce an invalid scalar. This copy is independent of that.
+    const signingKey = Uint8Array.from(this.secretKey);
 
     this.setState({ kind: "authenticating", npub });
     const chosen = workspaceId ?? this.chosenWorkspaceId ?? undefined;
 
     try {
       const grant = await this.deps.transport.requestChallenge();
-      const authEvent = this.sign(grant, secretKey);
+      const authEvent = this.sign(grant, signingKey);
       const result = await this.deps.transport.authenticate(authEvent, chosen);
       return this.applyResult(result, npub);
     } catch (err) {
       if (err instanceof IdentityAuthError && err.reason === "identity_auth_failed") {
-        // Valid signature, key not admitted yet or revoked — indistinguishable
-        // by design. Present it as an admission wait with a human "Check now".
+        // Valid signature, but the key is admitted to no workspace yet (or was
+        // revoked — indistinguishable by design). The honest next step is to
+        // register a folder, which is itself the act of joining it.
         this.setState({
-          kind: "awaiting-admission",
+          kind: "needs-workspace",
           npub,
-          message:
-            "This key is not admitted to any workspace yet (or has been revoked). " +
-            "Ask the operator to admit your npub, then choose Check now.",
+          message: "This identity is not in any workspace yet. Register a folder to create or join one.",
         });
         return this.state;
       }
@@ -217,6 +275,8 @@ export class AuthSession {
         message: err instanceof Error ? err.message : "Authentication failed unexpectedly.",
       });
       return this.state;
+    } finally {
+      signingKey.fill(0);
     }
   }
 
