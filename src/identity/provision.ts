@@ -9,6 +9,11 @@ import { saveIdentityFile } from "./store-fs.js";
  *
  * The phrase is never persisted — only the derived secret, encrypted. This is
  * the single path both first-run generation and import go through.
+ *
+ * A blank passphrase is a deliberate, supported choice (D-DEVICE-AUTH): the key
+ * is still encrypted, but with an empty secret, so the device itself is the
+ * authentication and the console unlocks it without prompting. The file records
+ * that as `protection: "device"` so the console knows not to ask.
  */
 export interface ProvisionedIdentity {
   readonly secretKey: Uint8Array;
@@ -18,6 +23,7 @@ export interface ProvisionedIdentity {
 export function provisionIdentity(phrase: string, passphrase: string): ProvisionedIdentity {
   const secretKey = deriveSecretKey(phrase);
   const npub = npubOf(secretKey);
-  saveIdentityFile(encryptSecretKey(secretKey, npub, passphrase));
+  const protection = passphrase.length === 0 ? "device" : "passphrase";
+  saveIdentityFile(encryptSecretKey(secretKey, npub, passphrase, protection));
   return { secretKey, npub };
 }

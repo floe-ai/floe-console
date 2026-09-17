@@ -13,6 +13,7 @@ const IdentityFileSchema = z.object({
   version: z.literal(1),
   npub: z.string().min(1),
   created_at: z.string().min(1),
+  protection: z.enum(["passphrase", "device"]).optional(),
   kdf: z.object({
     name: z.literal("scrypt"),
     N: z.number().int().positive(),

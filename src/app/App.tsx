@@ -5,7 +5,7 @@ import { createServices } from "./services.js";
 import { useAuthSession } from "./useAuthSession.js";
 import { FirstRun } from "./screens/FirstRun.js";
 import { Unlock } from "./screens/Unlock.js";
-import { AdmissionWait } from "./screens/AdmissionWait.js";
+import { RegisterWorkspace } from "./screens/RegisterWorkspace.js";
 import { SelectWorkspace } from "./screens/SelectWorkspace.js";
 import { MainSurface } from "./screens/MainSurface.js";
 
@@ -53,12 +53,11 @@ export function App(): JSX.Element {
         />
       );
 
-    case "awaiting-admission":
+    case "needs-workspace":
       return (
-        <AdmissionWait
-          npub={state.npub}
-          message={state.message}
-          onCheckNow={async () => void (await services.session.checkNow())}
+        <RegisterWorkspace
+          onRegister={(input) => services.session.registerAndJoin(input)}
+          onJoined={async () => void (await services.session.checkNow())}
         />
       );
 

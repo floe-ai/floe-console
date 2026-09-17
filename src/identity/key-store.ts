@@ -24,6 +24,14 @@ export interface IdentityFile {
   /** Public identity, stored in clear so admission status shows without unlock. */
   readonly npub: string;
   readonly created_at: string;
+  /**
+   * How this machine's copy is guarded (D-DEVICE-AUTH):
+   *  - `passphrase`: a human secret wraps the key; the console prompts to unlock.
+   *  - `device`: the passphrase is blank, so the device itself is the
+   *    authentication — anyone with access to this machine is this identity.
+   *    The console unlocks it silently. Absent means `passphrase` (older files).
+   */
+  readonly protection?: "passphrase" | "device";
   readonly kdf: {
     readonly name: "scrypt";
     readonly N: number;
@@ -52,6 +60,7 @@ export function encryptSecretKey(
   secretKey: Uint8Array,
   npub: string,
   passphrase: string,
+  protection: "passphrase" | "device" = "passphrase",
 ): IdentityFile {
   const salt = randomBytes(16);
   const iv = randomBytes(12);
@@ -65,6 +74,7 @@ export function encryptSecretKey(
     version: 1,
     npub,
     created_at: new Date().toISOString(),
+    protection,
     kdf: { name: "scrypt", N: KDF_PARAMS.N, r: KDF_PARAMS.r, p: KDF_PARAMS.p, salt: salt.toString("base64") },
     cipher: {
       name: "aes-256-gcm",
