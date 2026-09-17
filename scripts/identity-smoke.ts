@@ -17,7 +17,7 @@ const scratch = mkdtempSync(join(tmpdir(), "floe-console-smoke-"));
 process.env.FLOE_CONSOLE_HOME = scratch;
 
 const { generateRecoveryPhrase, deriveSecretKey, npubOf } = await import("../src/identity/mnemonic.js");
-const { encryptSecretKey, decryptSecretKey } = await import("../src/identity/key-store.js");
+const { encryptRecoveryPhrase, decryptRecoveryPhrase, decryptSecretKey } = await import("../src/identity/key-store.js");
 const { saveIdentityFile, loadIdentityFile, identityExists } = await import("../src/identity/store-fs.js");
 const { buildAuthEvent } = await import("../src/identity/auth-event.js");
 
@@ -40,7 +40,7 @@ try {
 
   console.log("\nS3  encrypt to disk under a passphrase");
   const passphrase = "smoke-test-passphrase";
-  saveIdentityFile(encryptSecretKey(secretKey, npub, passphrase));
+  saveIdentityFile(encryptRecoveryPhrase(phrase, npub, passphrase));
   line("identityExists()", String(identityExists()));
 
   console.log("\nS5a unlock from disk");
@@ -49,6 +49,8 @@ try {
   const unlocked = decryptSecretKey(file, passphrase);
   line("key round-trips", String(Buffer.from(unlocked).equals(Buffer.from(secretKey))));
   line("npub still matches", String(npubOf(unlocked) === npub));
+  const revealed = decryptRecoveryPhrase(file, passphrase);
+  line("phrase reveals (backup)", String(revealed === phrase));
 
   console.log("\nS5b sign a Bus-issued challenge (NIP-42)");
   const grant = { relay: "https://bus.floe.local", challenge: "chal_live_smoke" };
@@ -61,6 +63,7 @@ try {
     identityExists() &&
     Buffer.from(unlocked).equals(Buffer.from(secretKey)) &&
     npubOf(unlocked) === npub &&
+    revealed === phrase &&
     authEvent.kind === 22242 &&
     verifyEvent(authEvent);
 
