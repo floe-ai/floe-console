@@ -9,6 +9,9 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json",
+    "postbuild": "node scripts/register-surface.mjs",
+    "postinstall": "node scripts/register-surface.mjs",
+    "register": "node scripts/register-surface.mjs",
     "dev": "tsx src/main.tsx",
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
