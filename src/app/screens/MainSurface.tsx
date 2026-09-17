@@ -11,6 +11,7 @@ import {
 import type { BusEndpoints } from "../../bus/config.js";
 import type { BearerGrant } from "../../session/auth-session.js";
 import { shortNpub } from "./Unlock.js";
+import { Settings } from "./Settings.js";
 
 /**
  * The default surface once authenticated. Three jobs, nothing else:
@@ -41,7 +42,8 @@ type AnswerState =
 type Mode =
   | { readonly name: "browse" }
   | { readonly name: "answer"; readonly item: Delivery }
-  | { readonly name: "send" };
+  | { readonly name: "send" }
+  | { readonly name: "settings" };
 
 export function MainSurface({
   npub,
@@ -143,9 +145,12 @@ export function MainSurface({
   }, [client, endpoints.wsBaseUrl, bearer.token, workspaceId]);
 
   useInput((input, key) => {
+    // Settings owns all input while open (including its own two-level Esc).
+    if (mode.name === "settings") return;
     if (mode.name === "browse") {
       if (input === "q") exit();
       if (input === "s") setMode({ name: "send" });
+      if (input === "g") setMode({ name: "settings" });
       if (waiting.length > 0) {
         if (key.upArrow) setSelected((i) => Math.max(0, i - 1));
         if (key.downArrow) setSelected((i) => Math.min(waiting.length - 1, i + 1));
@@ -217,6 +222,10 @@ export function MainSurface({
     );
   }
 
+  if (mode.name === "settings") {
+    return <Settings npub={npub} onClose={() => setMode({ name: "browse" })} />;
+  }
+
   if (mode.name === "send") {
     return (
       <SendWork
@@ -254,7 +263,7 @@ export function MainSurface({
         <Text dimColor>Live: {lastActivity ?? "waiting for activity…"}</Text>
       </Box>
 
-      <Text dimColor>↑/↓ select · Enter answer · s send work · q quit</Text>
+      <Text dimColor>↑/↓ select · Enter answer · s send work · g settings · q quit</Text>
     </Box>
   );
 }
