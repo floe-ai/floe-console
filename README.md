@@ -20,6 +20,14 @@ Then open a new shell, `cd` anywhere, and run `floe-console`. Floe starts and th
 
 You do not need to install Floe first: the console depends on Floe (`github:floe-ai/floe`) and uses its own copy. The console does not put a `floe` command on your PATH — `floe` belongs to Floe alone. If you also install Floe (`npm install -g github:floe-ai/floe`), bare `floe` is its boot menu: it finds the console through the `floe.surface` field in the console's package.json and launches it (`floe console` works by name).
 
+### Upgrading
+
+If Floe was started from the console's own copy, it runs from files inside the console's install. On Windows, `npm install -g` then fails with `EBUSY` while Floe is running. Stop Floe first with the console's copy of the `floe` command, then upgrade:
+
+```
+node "$(npm root -g)\floe-console\node_modules\floe\floe-cli\dist\index.js" stop
+npm install -g github:floe-ai/floe-console
+```
 ## Principles that will not change
 
 - **No privileged access.** floe-console is an ordinary HTTP + WebSocket consumer of floe-bus. It holds no host-control credential and reaches around nothing.
