@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from "react";
-import { Box, Text } from "ink";
+import { Box, Text, useInput } from "ink";
 import Spinner from "ink-spinner";
 import { createServices } from "./services.js";
 import { useAuthSession } from "./useAuthSession.js";
@@ -18,6 +18,12 @@ import { MainSurface } from "./screens/MainSurface.js";
 export function App(): JSX.Element {
   const services = useMemo(() => createServices(), []);
   const state = useAuthSession(services.session);
+
+  // Hold the terminal in raw input mode for the console's whole life. Ink drops
+  // raw mode whenever no mounted screen reads input (e.g. the "Authenticating…"
+  // spinner between first run and the folder picker), and on Windows re-entering
+  // it leaves the next screen deaf to keys — Enter on the picker did nothing.
+  useInput(() => {});
 
   useEffect(() => {
     services.session.init();
