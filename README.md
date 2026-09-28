@@ -16,9 +16,9 @@ It is nothing else. Not a dashboard, not a project manager, not an IDE.
 npm install -g github:floe-ai/floe-console
 ```
 
-Then open a new shell, `cd` anywhere, and run `floe`. Floe starts, and the console opens on its first-run screen. `floe-console` does the same thing directly.
+Then open a new shell, `cd` anywhere, and run `floe-console`. Floe starts and the console opens on its first-run screen.
 
-You do not need to install Floe first. The console depends on Floe (`github:floe-ai/floe`) and brings its own copy, and it installs a `floe` command that hands everything to that copy. Because of that, installing the console and installing Floe globally on their own are mutually exclusive — npm refuses to let two packages own the `floe` command. Uninstall one before installing the other.
+You do not need to install Floe first: the console depends on Floe (`github:floe-ai/floe`) and uses its own copy. The console does not put a `floe` command on your PATH — `floe` belongs to Floe alone. If you also install Floe (`npm install -g github:floe-ai/floe`), bare `floe` is its boot menu: it finds the console through the `floe.surface` field in the console's package.json and launches it (`floe console` works by name).
 
 ## Principles that will not change
 
@@ -28,8 +28,8 @@ You do not need to install Floe first. The console depends on Floe (`github:floe
 
 ## How it sits on Floe
 
-- **Floe is a dependency, called only through its bin.** The console resolves the `floe` CLI from its own `node_modules` (never from PATH) and runs it as `node <floe bin>`. It uses `floe up` to make the substrate reachable and `floe surface register` to make itself launchable. Nothing else inside the Floe package is touched.
-- **It registers itself at launch, not at install.** Every `floe` start re-registers the `console` surface, pointing at the copy that is running, so a reinstall or upgrade can never leave Floe pointing at a stale path.
+- **Floe is a dependency, called only through its bin.** The console resolves the `floe` CLI from its own `node_modules` (never from PATH) and runs it as `node <floe bin>`. It uses `floe up` to make the substrate reachable. Nothing else inside the Floe package is touched.
+- **Floe finds it by its package.json, not a registry write.** The `floe.surface` field (name `console`, bin `floe-console`) is how Floe's boot menu detects an installed console. Nothing runs at install and nothing is written at launch.
 - **The compiled `dist/` is committed.** `npm install -g github:…` cannot build or run install scripts for a git package: npm prepares a git package with a nested install that inherits `--global`, which installs the package over itself and fails (verified on npm 11.3). So the package has no `build`, `prepare`, or `postinstall` script, and ships `dist/` in the repo. A test fails if `dist/` is not exactly what the source compiles to.
 
 ## Identity
