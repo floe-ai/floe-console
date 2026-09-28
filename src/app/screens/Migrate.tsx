@@ -73,8 +73,10 @@ export function Migrate({
       }
     } catch (error) {
       const code = error instanceof IdentityError ? error.code : "";
-      if (code === "wrong_passphrase") setStep({ name: "passphrase", error: "That passphrase did not open the file." });
-      else if (code === "display_name_required") setStep({ name: "display-name", args });
+      if (code === "wrong_passphrase") {
+        setPassphrase("");
+        setStep({ name: "passphrase", error: "That passphrase did not open the file." });
+      } else if (code === "display_name_required") setStep({ name: "display-name", args });
       else if (code === "identity_exists") setStep({ name: "other-identity", args });
       else setStep({ name: "unreadable", message: messageOf(error) });
     }

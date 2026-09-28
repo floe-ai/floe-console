@@ -45,8 +45,10 @@ export function Migrate({ identity, legacy, onBackup, onDone, }) {
         }
         catch (error) {
             const code = error instanceof IdentityError ? error.code : "";
-            if (code === "wrong_passphrase")
+            if (code === "wrong_passphrase") {
+                setPassphrase("");
                 setStep({ name: "passphrase", error: "That passphrase did not open the file." });
+            }
             else if (code === "display_name_required")
                 setStep({ name: "display-name", args });
             else if (code === "identity_exists")
