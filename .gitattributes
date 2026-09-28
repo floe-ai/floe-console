@@ -1,0 +1,3 @@
+# Compiled output is committed (a git install cannot build it — see README), and
+# must be byte-identical on every OS so the freshness test and unix shebangs hold.
+dist/** text eol=lf

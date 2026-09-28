@@ -5,13 +5,14 @@
   "type": "module",
   "description": "A terminal client for the Floe substrate: see what actors are doing, send work in, and answer what actors ask.",
   "bin": {
+    "floe": "./dist/floe.js",
     "floe-console": "./dist/main.js"
   },
+  "files": [
+    "dist"
+  ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
-    "postbuild": "node scripts/register-surface.mjs",
-    "postinstall": "node scripts/register-surface.mjs",
-    "register": "node scripts/register-surface.mjs",
+    "compile": "tsc -p tsconfig.json",
     "dev": "tsx src/main.tsx",
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
@@ -19,6 +20,7 @@
   },
   "dependencies": {
     "@scure/bip39": "^1.3.0",
+    "floe": "github:floe-ai/floe#91af67c8f3cd8837095de4b4d5ff1dfea6690e7f",
     "ink": "^5.0.1",
     "ink-select-input": "^6.2.0",
     "ink-spinner": "^5.0.0",

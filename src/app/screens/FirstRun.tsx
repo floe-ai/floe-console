@@ -175,7 +175,7 @@ export function FirstRun({
         <Text bold>Write down your recovery phrase</Text>
         <Text>
           These words are the only backup of this identity. Write them down, in order, on paper and
-          keep them somewhere safe. No one — not the operator, not Floe — can recover them for you.
+          keep them somewhere safe. No one — not Floe, not anyone else — can recover them for you.
           You can see them again later in settings.
         </Text>
         <RecoveryPhraseView phrase={phrase} />
