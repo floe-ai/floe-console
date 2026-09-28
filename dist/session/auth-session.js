@@ -5,7 +5,7 @@ import { loadIdentityFile } from "../identity/store-fs.js";
 const DEFAULT_REFRESH_SKEW_MS = 60_000;
 export class AuthSession {
     deps;
-    state = { kind: "no-key" };
+    state = { kind: "checking" };
     listeners = new Set();
     secretKey = null;
     npub = null;

@@ -27,6 +27,8 @@ export function App() {
         services.session.init();
     }, [services.session]);
     switch (state.kind) {
+        case "checking":
+            return _jsx(Text, { dimColor: true, children: "Checking this machine for your identity\u2026" });
         case "no-key":
             return (_jsx(FirstRun, { onProvisioned: (secretKey, npub) => {
                     void services.session.adoptFreshKey(secretKey, npub);

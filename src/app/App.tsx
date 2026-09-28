@@ -30,6 +30,9 @@ export function App(): JSX.Element {
   }, [services.session]);
 
   switch (state.kind) {
+    case "checking":
+      return <Text dimColor>Checking this machine for your identity…</Text>;
+
     case "no-key":
       return (
         <FirstRun

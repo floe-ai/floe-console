@@ -35,6 +35,9 @@ export interface BearerGrant {
 }
 
 export type AuthSessionState =
+  // Before init() has read this machine's key store. Nothing is known yet, so no
+  // screen may claim there is or isn't an identity.
+  | { readonly kind: "checking" }
   | { readonly kind: "no-key" }
   | { readonly kind: "locked"; readonly npub: string }
   | { readonly kind: "authenticating"; readonly npub: string }
@@ -87,7 +90,7 @@ export interface AuthSessionDeps {
 const DEFAULT_REFRESH_SKEW_MS = 60_000;
 
 export class AuthSession {
-  private state: AuthSessionState = { kind: "no-key" };
+  private state: AuthSessionState = { kind: "checking" };
   private readonly listeners = new Set<AuthSessionListener>();
 
   private secretKey: Uint8Array | null = null;
