@@ -1,18 +1,29 @@
 import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useState } from "react";
-import { Box, Text } from "ink";
+import { Box, Text, useInput } from "ink";
 import TextInput from "ink-text-input";
-import { IncorrectPassphraseError } from "../../identity/key-store.js";
+import { IdentityError } from "floe/identity";
+import { messageOf } from "../../identity/identity-link.js";
+import { ForgotPassphrase } from "./ForgotPassphrase.js";
 /**
- * The key exists on this machine but is locked. Ask for the passphrase, decrypt
- * in memory, and authenticate. A wrong passphrase is shown against the field —
- * it is a local decryption failure, not a substrate error.
+ * A passphrase identity that Floe has locked. Only ever shown for
+ * `protection: "passphrase"`; a device identity unlocks by itself. The way out,
+ * "Forgot passphrase", is always on screen, so this can never be a trap.
  */
-export function Unlock({ npub, onUnlock, }) {
+export function Unlock({ identity, onBackup, }) {
     const [passphrase, setPassphrase] = useState("");
     const [error, setError] = useState(null);
     const [busy, setBusy] = useState(false);
-    return (_jsxs(Box, { flexDirection: "column", gap: 1, children: [_jsx(Text, { bold: true, children: "Unlock your identity" }), _jsx(Text, { dimColor: true, children: shortNpub(npub) }), _jsxs(Box, { children: [_jsx(Text, { children: "Passphrase: " }), _jsx(TextInput, { mask: "*", value: passphrase, onChange: (v) => {
+    const [forgot, setForgot] = useState(false);
+    useInput((_input, key) => {
+        if (key.escape && !busy)
+            setForgot(true);
+    }, { isActive: !forgot });
+    if (forgot) {
+        return _jsx(ForgotPassphrase, { identity: identity, onBackup: onBackup, onCancel: () => setForgot(false) });
+    }
+    const name = identity.state.kind === "none" ? "" : identity.state.display_name;
+    return (_jsxs(Box, { flexDirection: "column", gap: 1, children: [_jsxs(Text, { bold: true, children: ["Unlock your identity", name ? ` (${name})` : ""] }), _jsxs(Box, { children: [_jsx(Text, { children: "Passphrase: " }), _jsx(TextInput, { mask: "*", value: passphrase, onChange: (v) => {
                             setPassphrase(v);
                             setError(null);
                         }, onSubmit: async () => {
@@ -20,21 +31,14 @@ export function Unlock({ npub, onUnlock, }) {
                                 return;
                             setBusy(true);
                             try {
-                                await onUnlock(passphrase);
+                                await identity.unlock(passphrase);
                             }
                             catch (err) {
-                                setError(err instanceof IncorrectPassphraseError
+                                setError(err instanceof IdentityError && err.code === "wrong_passphrase"
                                     ? "That passphrase did not unlock this identity."
-                                    : err instanceof Error
-                                        ? err.message
-                                        : "Unlock failed.");
+                                    : messageOf(err));
                                 setPassphrase("");
-                            }
-                            finally {
                                 setBusy(false);
                             }
-                        } })] }), error && _jsx(Text, { color: "red", children: error })] }));
-}
-export function shortNpub(npub) {
-    return npub.length > 20 ? `${npub.slice(0, 12)}…${npub.slice(-6)}` : npub;
+                        } })] }), error && _jsx(Text, { color: "red", children: error }), _jsx(Text, { dimColor: true, children: "Forgot your passphrase? Press Esc." })] }));
 }

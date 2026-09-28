@@ -9,8 +9,7 @@ import {
   type Endpoint,
 } from "../../bus/workspace-client.js";
 import type { BusEndpoints } from "../../bus/config.js";
-import type { BearerGrant } from "../../session/auth-session.js";
-import { shortNpub } from "./Unlock.js";
+import type { IdentityClient } from "floe/identity";
 import { Settings } from "./Settings.js";
 
 /**
@@ -46,22 +45,24 @@ type Mode =
   | { readonly name: "settings" };
 
 export function MainSurface({
-  npub,
+  identity,
   workspaceName,
   workspaceId,
   bearer,
   endpoints,
 }: {
-  npub: string;
+  identity: IdentityClient;
   workspaceName: string;
   workspaceId: string;
-  bearer: BearerGrant;
+  /** Pushed by Floe, and pushed again renewed before it expires. */
+  bearer: string;
   endpoints: BusEndpoints;
 }): JSX.Element {
   const { exit } = useApp();
+  const displayName = identity.state.kind === "none" ? "" : identity.state.display_name;
   const client = useMemo(
-    () => new WorkspaceClient({ httpBaseUrl: endpoints.httpBaseUrl, bearerToken: bearer.token, workspaceId }),
-    [endpoints.httpBaseUrl, bearer.token, workspaceId],
+    () => new WorkspaceClient({ httpBaseUrl: endpoints.httpBaseUrl, bearerToken: bearer, workspaceId }),
+    [endpoints.httpBaseUrl, bearer, workspaceId],
   );
 
   const [actor, setActor] = useState<Endpoint | null | "unknown">("unknown");
@@ -117,7 +118,7 @@ export function MainSurface({
 
     stream = new EventStream({
       wsBaseUrl: endpoints.wsBaseUrl,
-      bearerToken: bearer.token,
+      bearerToken: bearer,
       workspaceId,
       startAtCurrent: true,
       handlers: {
@@ -142,7 +143,7 @@ export function MainSurface({
       stream?.stop();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [client, endpoints.wsBaseUrl, bearer.token, workspaceId]);
+  }, [client, endpoints.wsBaseUrl, bearer, workspaceId]);
 
   useInput((input, key) => {
     // Settings owns all input while open (including its own two-level Esc).
@@ -167,7 +168,7 @@ export function MainSurface({
   const header = (
     <Box justifyContent="space-between">
       <Text>
-        <Text bold>{workspaceName}</Text> <Text dimColor>· {shortNpub(npub)}</Text>
+        <Text bold>{workspaceName}</Text>{displayName && <Text dimColor> · {displayName}</Text>}
       </Text>
       <Text dimColor>{describeStream(streamStatus)}</Text>
     </Box>
@@ -223,7 +224,7 @@ export function MainSurface({
   }
 
   if (mode.name === "settings") {
-    return <Settings npub={npub} onClose={() => setMode({ name: "browse" })} />;
+    return <Settings identity={identity} onClose={() => setMode({ name: "browse" })} />;
   }
 
   if (mode.name === "send") {

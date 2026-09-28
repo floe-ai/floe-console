@@ -2,18 +2,15 @@ import { jsx as _jsx, jsxs as _jsxs } from "react/jsx-runtime";
 import { useEffect, useMemo, useState } from "react";
 import { readdirSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { userInfo } from "node:os";
 import { Box, Text, useInput } from "ink";
 import TextInput from "ink-text-input";
 import Spinner from "ink-spinner";
-export function RegisterWorkspace({ onRegister, onJoined, }) {
+export function RegisterWorkspace({ onJoin, onHold, }) {
     const [phase, setPhase] = useState({ name: "pick" });
     const [dir, setDir] = useState(process.cwd());
     const [selected, setSelected] = useState(0);
     const [chosen, setChosen] = useState(null);
-    const [displayName, setDisplayName] = useState(defaultUserName());
     const [workspaceName, setWorkspaceName] = useState("");
-    const [detailField, setDetailField] = useState("name");
     const entries = useMemo(() => listEntries(dir), [dir]);
     useEffect(() => {
         setSelected(0);
@@ -31,7 +28,6 @@ export function RegisterWorkspace({ onRegister, onJoined, }) {
                 if (entry.kind === "use") {
                     setChosen(dir);
                     setWorkspaceName(basename(dir) || dir);
-                    setDetailField("name");
                     setPhase({ name: "details" });
                 }
                 else if (entry.path) {
@@ -39,8 +35,11 @@ export function RegisterWorkspace({ onRegister, onJoined, }) {
                 }
             }
         }
+        else if (phase.name === "details" && key.escape) {
+            setPhase({ name: "pick" });
+        }
         else if (phase.name === "pending" && key.return) {
-            phase.retry();
+            onHold(false);
         }
         else if (phase.name === "problem" && key.return) {
             setPhase({ name: "pick" });
@@ -51,49 +50,42 @@ export function RegisterWorkspace({ onRegister, onJoined, }) {
             return;
         setPhase({ name: "submitting" });
         try {
-            const result = await onRegister({
-                locator: chosen,
-                displayName: displayName.trim() || defaultUserName(),
-                name: workspaceName.trim() || undefined,
-            });
-            await applyResult(result);
+            const outcome = await onJoin({ locator: chosen, name: workspaceName.trim() || undefined });
+            switch (outcome.kind) {
+                case "ready":
+                    return; // The bearer arrives by push and the console moves on.
+                case "pending":
+                    onHold(true);
+                    setPhase({ name: "pending" });
+                    return;
+                case "failed":
+                    setPhase({ name: "problem", message: failedReason(outcome.reason) + " Press Enter to choose another folder." });
+                    return;
+                case "invalid":
+                case "refused":
+                    setPhase({ name: "problem", message: outcome.message + " Press Enter to choose another folder." });
+                    return;
+            }
         }
         catch (err) {
             setPhase({
                 name: "problem",
                 message: (err instanceof Error ? err.message : "The workspace could not be registered.") +
-                    " — is Floe running? Press Enter to choose another folder.",
+                    " Press Enter to choose another folder.",
             });
-        }
-    }
-    async function applyResult(result) {
-        switch (result.kind) {
-            case "ready":
-                await onJoined();
-                return;
-            case "pending":
-                setPhase({ name: "pending", retry: () => void onJoined() });
-                return;
-            case "failed":
-                setPhase({ name: "problem", message: failedReason(result.reason) + " Press Enter to choose another folder." });
-                return;
-            case "invalid":
-            case "refused":
-                setPhase({ name: "problem", message: result.message + " Press Enter to choose another folder." });
-                return;
         }
     }
     if (phase.name === "submitting") {
         return (_jsxs(Text, { children: [_jsx(Spinner, { type: "dots" }), " Registering ", chosen, "\u2026"] }));
     }
     if (phase.name === "pending") {
-        return (_jsxs(Box, { flexDirection: "column", gap: 1, children: [_jsx(Text, { bold: true, color: "yellow", children: "Registered \u2014 finishing setup." }), _jsx(Text, { children: "Your workspace is registered and this identity is admitted to it. Floe's bridge has not confirmed the folder on disk yet, which usually just means it is not running. This is not an error; setup completes on its own once the bridge is up." }), _jsx(Text, { dimColor: true, children: "Press Enter to continue into the console." })] }));
+        return (_jsxs(Box, { flexDirection: "column", gap: 1, children: [_jsx(Text, { bold: true, color: "yellow", children: "Registered \u2014 finishing setup." }), _jsx(Text, { children: "Your workspace is registered and this identity is in it. Floe's bridge has not confirmed the folder on disk yet, which usually just means it is not running. This is not an error; setup completes on its own once the bridge is up." }), _jsx(Text, { dimColor: true, children: "Press Enter to continue into the console." })] }));
     }
     if (phase.name === "problem") {
         return (_jsx(Box, { flexDirection: "column", gap: 1, children: _jsx(Text, { color: "red", children: phase.message }) }));
     }
     if (phase.name === "details") {
-        return (_jsxs(Box, { flexDirection: "column", gap: 1, children: [_jsx(Text, { bold: true, children: "Name this workspace" }), _jsx(Text, { dimColor: true, children: chosen }), _jsxs(Box, { children: [_jsxs(Text, { children: [detailField === "name" ? "❯ " : "  ", "Your name:     "] }), detailField === "name" ? (_jsx(TextInput, { value: displayName, onChange: setDisplayName, onSubmit: () => setDetailField("workspace") })) : (_jsx(Text, { children: displayName }))] }), _jsxs(Box, { children: [_jsxs(Text, { children: [detailField === "workspace" ? "❯ " : "  ", "Workspace name: "] }), detailField === "workspace" ? (_jsx(TextInput, { value: workspaceName, onChange: setWorkspaceName, onSubmit: () => void submit() })) : (_jsx(Text, { children: workspaceName }))] }), _jsx(Text, { dimColor: true, children: "Enter to accept each field \u00B7 registers when both are set" })] }));
+        return (_jsxs(Box, { flexDirection: "column", gap: 1, children: [_jsx(Text, { bold: true, children: "Name this workspace" }), _jsx(Text, { dimColor: true, children: chosen }), _jsxs(Box, { children: [_jsx(Text, { children: "Workspace name: " }), _jsx(TextInput, { value: workspaceName, onChange: setWorkspaceName, onSubmit: () => void submit() })] }), _jsx(Text, { dimColor: true, children: "Enter to register \u00B7 Esc to pick another folder" })] }));
     }
     // pick
     return (_jsxs(Box, { flexDirection: "column", gap: 1, children: [_jsx(Text, { bold: true, children: "Choose a workspace folder" }), _jsx(Text, { dimColor: true, children: dir }), _jsx(Box, { flexDirection: "column", children: entries.map((e, i) => (_jsxs(Text, { color: i === selected ? "cyan" : undefined, children: [i === selected ? "❯ " : "  ", e.kind === "use" ? _jsx(Text, { bold: true, children: e.label }) : e.label] }, `${e.kind}:${e.label}`))) }), _jsx(Text, { dimColor: true, children: "\u2191/\u2193 move \u00B7 Enter open folder or use this one" })] }));
@@ -115,14 +107,6 @@ function listEntries(dir) {
         // An unreadable directory simply offers no children; the person can go up.
     }
     return entries;
-}
-function defaultUserName() {
-    try {
-        return userInfo().username || "me";
-    }
-    catch {
-        return "me";
-    }
 }
 function failedReason(reason) {
     switch (reason) {

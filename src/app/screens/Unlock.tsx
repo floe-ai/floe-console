@@ -1,28 +1,44 @@
 import { useState } from "react";
-import { Box, Text } from "ink";
+import { Box, Text, useInput } from "ink";
 import TextInput from "ink-text-input";
-import { IncorrectPassphraseError } from "../../identity/key-store.js";
+import { IdentityError, type IdentityClient } from "floe/identity";
+import type { Backup } from "../components/Backup.js";
+import { messageOf } from "../../identity/identity-link.js";
+import { ForgotPassphrase } from "./ForgotPassphrase.js";
 
 /**
- * The key exists on this machine but is locked. Ask for the passphrase, decrypt
- * in memory, and authenticate. A wrong passphrase is shown against the field —
- * it is a local decryption failure, not a substrate error.
+ * A passphrase identity that Floe has locked. Only ever shown for
+ * `protection: "passphrase"`; a device identity unlocks by itself. The way out,
+ * "Forgot passphrase", is always on screen, so this can never be a trap.
  */
 export function Unlock({
-  npub,
-  onUnlock,
+  identity,
+  onBackup,
 }: {
-  npub: string;
-  onUnlock: (passphrase: string) => Promise<void>;
+  identity: IdentityClient;
+  onBackup: (backup: Backup) => void;
 }): JSX.Element {
   const [passphrase, setPassphrase] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [forgot, setForgot] = useState(false);
+
+  useInput(
+    (_input, key) => {
+      if (key.escape && !busy) setForgot(true);
+    },
+    { isActive: !forgot },
+  );
+
+  if (forgot) {
+    return <ForgotPassphrase identity={identity} onBackup={onBackup} onCancel={() => setForgot(false)} />;
+  }
+
+  const name = identity.state.kind === "none" ? "" : identity.state.display_name;
 
   return (
     <Box flexDirection="column" gap={1}>
-      <Text bold>Unlock your identity</Text>
-      <Text dimColor>{shortNpub(npub)}</Text>
+      <Text bold>Unlock your identity{name ? ` (${name})` : ""}</Text>
       <Box>
         <Text>Passphrase: </Text>
         <TextInput
@@ -36,27 +52,21 @@ export function Unlock({
             if (busy) return;
             setBusy(true);
             try {
-              await onUnlock(passphrase);
+              await identity.unlock(passphrase);
             } catch (err) {
               setError(
-                err instanceof IncorrectPassphraseError
+                err instanceof IdentityError && err.code === "wrong_passphrase"
                   ? "That passphrase did not unlock this identity."
-                  : err instanceof Error
-                    ? err.message
-                    : "Unlock failed.",
+                  : messageOf(err),
               );
               setPassphrase("");
-            } finally {
               setBusy(false);
             }
           }}
         />
       </Box>
       {error && <Text color="red">{error}</Text>}
+      <Text dimColor>Forgot your passphrase? Press Esc.</Text>
     </Box>
   );
-}
-
-export function shortNpub(npub: string): string {
-  return npub.length > 20 ? `${npub.slice(0, 12)}…${npub.slice(-6)}` : npub;
 }

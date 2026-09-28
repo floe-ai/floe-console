@@ -1,35 +1,33 @@
 import { useEffect, useMemo, useState } from "react";
 import { readdirSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
-import { userInfo } from "node:os";
 import { Box, Text, useInput } from "ink";
 import TextInput from "ink-text-input";
 import Spinner from "ink-spinner";
-import type { RegisterWorkspaceInput, RegisterWorkspaceResult } from "../../bus/identity-auth.js";
+import type { JoinOutcome } from "floe/identity";
 
 /**
- * The identity exists but is in no workspace yet. Registering a folder on this
- * machine is the act of joining it — you are the host, so there is no admission
- * screen and no operator step. The person picks a folder, names it, and the
- * substrate imports its `.floe` (or creates one) and admits this identity.
+ * The identity is in no workspace yet. Registering a folder on this machine is
+ * the act of joining it, so there is no admission screen. The person picks a
+ * folder and names the workspace; Floe's identity agent registers it under the
+ * identity's own name and, once it is joined, pushes this console a bearer by
+ * itself, which moves the console on.
  *
- * The folder list is read straight off local disk with Node `fs`. That is not a
- * privileged reach around the bus: the console runs on this machine, and the
- * bus's own browse route is host-gated precisely so a client reads its own disk
- * directly rather than asking the substrate to.
+ * The folder list is read straight off local disk with Node `fs`: the console
+ * runs on this machine, and the bus's own browse route is host-gated precisely
+ * so a client reads its own disk directly.
  *
- * The three outcomes the register-and-join route can return are shown honestly
- * and never collapsed: `ready` continues, `pending` says plainly that the
- * bridge has not finished setting the folder up (usually because it is not
- * running yet) without implying anything went wrong, and `failed` shows the real
- * reason so the person can fix it or pick another folder.
+ * Outcomes are shown honestly and never collapsed: `ready` waits for the pushed
+ * bearer, `pending` says plainly that the bridge has not finished setting the
+ * folder up (usually because it is not running yet) without implying anything
+ * went wrong, and `failed` shows the real reason.
  */
 
 type Phase =
   | { readonly name: "pick" }
   | { readonly name: "details" }
   | { readonly name: "submitting" }
-  | { readonly name: "pending"; readonly retry: () => void }
+  | { readonly name: "pending" }
   | { readonly name: "problem"; readonly message: string };
 
 interface Entry {
@@ -39,19 +37,18 @@ interface Entry {
 }
 
 export function RegisterWorkspace({
-  onRegister,
-  onJoined,
+  onJoin,
+  onHold,
 }: {
-  onRegister: (input: RegisterWorkspaceInput) => Promise<RegisterWorkspaceResult>;
-  onJoined: () => Promise<void>;
+  onJoin: (input: { locator: string; name?: string }) => Promise<JoinOutcome>;
+  /** True while the pending notice must stay on screen after the bearer arrives. */
+  onHold: (holding: boolean) => void;
 }): JSX.Element {
   const [phase, setPhase] = useState<Phase>({ name: "pick" });
   const [dir, setDir] = useState<string>(process.cwd());
   const [selected, setSelected] = useState(0);
   const [chosen, setChosen] = useState<string | null>(null);
-  const [displayName, setDisplayName] = useState(defaultUserName());
   const [workspaceName, setWorkspaceName] = useState("");
-  const [detailField, setDetailField] = useState<"name" | "workspace">("name");
 
   const entries = useMemo(() => listEntries(dir), [dir]);
 
@@ -69,14 +66,15 @@ export function RegisterWorkspace({
         if (entry.kind === "use") {
           setChosen(dir);
           setWorkspaceName(basename(dir) || dir);
-          setDetailField("name");
           setPhase({ name: "details" });
         } else if (entry.path) {
           setDir(entry.path);
         }
       }
+    } else if (phase.name === "details" && key.escape) {
+      setPhase({ name: "pick" });
     } else if (phase.name === "pending" && key.return) {
-      phase.retry();
+      onHold(false);
     } else if (phase.name === "problem" && key.return) {
       setPhase({ name: "pick" });
     }
@@ -86,37 +84,29 @@ export function RegisterWorkspace({
     if (!chosen) return;
     setPhase({ name: "submitting" });
     try {
-      const result = await onRegister({
-        locator: chosen,
-        displayName: displayName.trim() || defaultUserName(),
-        name: workspaceName.trim() || undefined,
-      });
-      await applyResult(result);
+      const outcome = await onJoin({ locator: chosen, name: workspaceName.trim() || undefined });
+      switch (outcome.kind) {
+        case "ready":
+          return; // The bearer arrives by push and the console moves on.
+        case "pending":
+          onHold(true);
+          setPhase({ name: "pending" });
+          return;
+        case "failed":
+          setPhase({ name: "problem", message: failedReason(outcome.reason) + " Press Enter to choose another folder." });
+          return;
+        case "invalid":
+        case "refused":
+          setPhase({ name: "problem", message: outcome.message + " Press Enter to choose another folder." });
+          return;
+      }
     } catch (err) {
       setPhase({
         name: "problem",
         message:
           (err instanceof Error ? err.message : "The workspace could not be registered.") +
-          " — is Floe running? Press Enter to choose another folder.",
+          " Press Enter to choose another folder.",
       });
-    }
-  }
-
-  async function applyResult(result: RegisterWorkspaceResult): Promise<void> {
-    switch (result.kind) {
-      case "ready":
-        await onJoined();
-        return;
-      case "pending":
-        setPhase({ name: "pending", retry: () => void onJoined() });
-        return;
-      case "failed":
-        setPhase({ name: "problem", message: failedReason(result.reason) + " Press Enter to choose another folder." });
-        return;
-      case "invalid":
-      case "refused":
-        setPhase({ name: "problem", message: result.message + " Press Enter to choose another folder." });
-        return;
     }
   }
 
@@ -135,9 +125,9 @@ export function RegisterWorkspace({
           Registered — finishing setup.
         </Text>
         <Text>
-          Your workspace is registered and this identity is admitted to it. Floe&apos;s bridge has not
-          confirmed the folder on disk yet, which usually just means it is not running. This is not
-          an error; setup completes on its own once the bridge is up.
+          Your workspace is registered and this identity is in it. Floe&apos;s bridge has not confirmed the
+          folder on disk yet, which usually just means it is not running. This is not an error; setup
+          completes on its own once the bridge is up.
         </Text>
         <Text dimColor>Press Enter to continue into the console.</Text>
       </Box>
@@ -158,30 +148,10 @@ export function RegisterWorkspace({
         <Text bold>Name this workspace</Text>
         <Text dimColor>{chosen}</Text>
         <Box>
-          <Text>{detailField === "name" ? "❯ " : "  "}Your name:     </Text>
-          {detailField === "name" ? (
-            <TextInput
-              value={displayName}
-              onChange={setDisplayName}
-              onSubmit={() => setDetailField("workspace")}
-            />
-          ) : (
-            <Text>{displayName}</Text>
-          )}
+          <Text>Workspace name: </Text>
+          <TextInput value={workspaceName} onChange={setWorkspaceName} onSubmit={() => void submit()} />
         </Box>
-        <Box>
-          <Text>{detailField === "workspace" ? "❯ " : "  "}Workspace name: </Text>
-          {detailField === "workspace" ? (
-            <TextInput
-              value={workspaceName}
-              onChange={setWorkspaceName}
-              onSubmit={() => void submit()}
-            />
-          ) : (
-            <Text>{workspaceName}</Text>
-          )}
-        </Box>
-        <Text dimColor>Enter to accept each field · registers when both are set</Text>
+        <Text dimColor>Enter to register · Esc to pick another folder</Text>
       </Box>
     );
   }
@@ -218,14 +188,6 @@ function listEntries(dir: string): Entry[] {
     // An unreadable directory simply offers no children; the person can go up.
   }
   return entries;
-}
-
-function defaultUserName(): string {
-  try {
-    return userInfo().username || "me";
-  } catch {
-    return "me";
-  }
 }
 
 function failedReason(reason: string): string {

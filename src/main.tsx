@@ -1,21 +1,19 @@
 #!/usr/bin/env node
 import { render } from "ink";
 import { App } from "./app/App.js";
-import { ensureSubstrateReachable } from "./bus/ensure-substrate.js";
+import { IdentityLink } from "./identity/identity-link.js";
 
 /**
- * Entry point. floe-console is an ordinary, unprivileged HTTP + WebSocket
- * consumer of floe-bus: it holds a client keypair, authenticates to obtain a
- * scoped bearer, and never reaches around the substrate.
+ * Entry point. floe-console is an ordinary, unprivileged surface: Floe's
+ * identity agent holds the person's key and pushes this console short-lived
+ * bearers, and the console is an HTTP + WebSocket consumer of floe-bus with them.
  *
- * Before rendering, make the substrate reachable connect-first via the
- * substrate's own `floe up`: reuse a running Floe, or — only where this
- * machine's policy allows — start one, or report it is not running. A cold run
- * therefore either lands in a live console or says plainly why it cannot,
- * rather than failing mid-handshake against a bus that was never there.
+ * Connecting to the agent starts Floe first where this machine's
+ * `services.start_on_demand` allows it, and otherwise reports it is not running.
  */
-const readiness = await ensureSubstrateReachable();
-if (!readiness.ok) {
-  process.exit(readiness.code);
-}
-render(<App />);
+const link = new IdentityLink();
+const connecting = link.connect();
+const app = render(<App link={link} />);
+await connecting;
+await app.waitUntilExit();
+link.close();

@@ -1,82 +1,92 @@
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Box, Text, useInput } from "ink";
 import TextInput from "ink-text-input";
 import SelectInput from "ink-select-input";
-import { loadIdentityFile } from "../../identity/store-fs.js";
-import { revealRecoveryPhrase } from "../../identity/provision.js";
-import { IncorrectPassphraseError } from "../../identity/key-store.js";
-import { RecoveryPhraseView } from "../components/RecoveryPhrase.js";
-import { shortNpub } from "./Unlock.js";
+import { IdentityError, type IdentityClient, type SecretKind } from "floe/identity";
+import { BackupView } from "../components/Backup.js";
+import { messageOf } from "../../identity/identity-link.js";
 
 /**
- * Settings, reachable from the main surface. Its one job today is the backup
- * half of identity: reveal this machine's recovery phrase so it can be written
- * down or carried to another machine (where first-run restore imports it).
- * Reveal and import are the same mechanism reversed; import lives at first run
- * because a new machine has no identity to open settings with.
- *
- * Reveal is gated on the passphrase where one exists. Where the identity is
- * device protected (the passphrase was left blank), there is nothing to prompt
- * for, so this says plainly that the device is the only thing protecting it and
- * that the phrase is the only copy that survives this machine.
+ * Settings, reachable from the main surface. Its job is the identity's backup:
+ * reveal the recovery phrase (or, for an identity made before phrases, its
+ * secret key). Floe opens it; a passphrase identity needs the passphrase, and a
+ * device identity needs an explicit confirmation because the device is its only
+ * guard. Restoring on another machine is first run's "Restore".
  */
 
 type Phase =
   | { readonly name: "menu" }
   | { readonly name: "passphrase" }
-  | { readonly name: "revealed"; readonly phrase: string };
+  | { readonly name: "confirm" }
+  | { readonly name: "revealed"; readonly kind: SecretKind; readonly secret: string };
 
-export function Settings({ npub, onClose }: { npub: string; onClose: () => void }): JSX.Element {
-  const protection = useMemo(() => loadIdentityFile()?.protection ?? "passphrase", []);
+export function Settings({ identity, onClose }: { identity: IdentityClient; onClose: () => void }): JSX.Element {
   const [phase, setPhase] = useState<Phase>({ name: "menu" });
   const [passphrase, setPassphrase] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const state = identity.state;
+  const device = state.kind !== "none" && state.protection === "device";
 
   useInput((_input, key) => {
-    if (key.escape) {
-      if (phase.name === "menu") onClose();
-      else {
-        setPassphrase("");
-        setError(null);
-        setPhase({ name: "menu" });
-      }
+    if (!key.escape) return;
+    if (phase.name === "menu") onClose();
+    else {
+      setPassphrase("");
+      setError(null);
+      setPhase({ name: "menu" });
     }
   });
 
-  function reveal(withPassphrase: string): void {
+  async function reveal(args: { passphrase?: string; confirm?: boolean }): Promise<void> {
     try {
-      setPhase({ name: "revealed", phrase: revealRecoveryPhrase(withPassphrase) });
+      const { secret_kind, secret } = await identity.reveal(args);
+      setPhase({ name: "revealed", kind: secret_kind, secret });
     } catch (err) {
+      setPassphrase("");
       setError(
-        err instanceof IncorrectPassphraseError
+        err instanceof IdentityError && err.code === "wrong_passphrase"
           ? "That passphrase did not unlock this identity."
-          : err instanceof Error
-            ? err.message
-            : "Could not reveal the recovery phrase.",
+          : messageOf(err),
       );
     }
   }
 
-  const header = (
-    <Text>
-      <Text bold>Settings</Text> <Text dimColor>· {shortNpub(npub)}</Text>
-    </Text>
-  );
+  const header = <Text bold>Settings{state.kind !== "none" ? ` · ${state.display_name}` : ""}</Text>;
 
   if (phase.name === "revealed") {
     return (
       <Box flexDirection="column" gap={1}>
         {header}
-        <Text bold>Your recovery phrase</Text>
-        {protection === "device" && (
+        <Text bold>{phase.kind === "phrase" ? "Your recovery phrase" : "Your secret key"}</Text>
+        {device && (
           <Text color="yellow">
-            This identity has no passphrase — the device is the only thing protecting it. This phrase
-            is the only copy that survives this machine, so write it down and keep it safe.
+            This identity has no passphrase: the device is the only thing protecting it. This backup is the
+            only copy that survives this machine, so write it down and keep it safe.
           </Text>
         )}
-        <Text>Write these words down, in order. This is a backup to keep, not an address to share.</Text>
-        <RecoveryPhraseView phrase={phase.phrase} />
+        <Text>Write it down. It is a backup to keep, not an address to share.</Text>
+        <BackupView kind={phase.kind} secret={phase.secret} />
         <Text dimColor>Esc to go back.</Text>
+      </Box>
+    );
+  }
+
+  if (phase.name === "confirm") {
+    return (
+      <Box flexDirection="column" gap={1}>
+        {header}
+        <Text>
+          This identity is guarded only by this device. Anyone who can use this computer as you can see its
+          backup. Show it now?
+        </Text>
+        {error && <Text color="red">{error}</Text>}
+        <SelectInput
+          items={[
+            { label: "Yes, show my backup", value: "yes" },
+            { label: "No, go back", value: "no" },
+          ]}
+          onSelect={(item) => (item.value === "yes" ? void reveal({ confirm: true }) : setPhase({ name: "menu" }))}
+        />
       </Box>
     );
   }
@@ -85,7 +95,7 @@ export function Settings({ npub, onClose }: { npub: string; onClose: () => void 
     return (
       <Box flexDirection="column" gap={1}>
         {header}
-        <Text>Enter your passphrase to reveal your recovery phrase.</Text>
+        <Text>Enter your passphrase to reveal your backup.</Text>
         <Box>
           <Text>Passphrase: </Text>
           <TextInput
@@ -95,7 +105,7 @@ export function Settings({ npub, onClose }: { npub: string; onClose: () => void 
               setPassphrase(v);
               setError(null);
             }}
-            onSubmit={() => reveal(passphrase)}
+            onSubmit={() => void reveal({ passphrase })}
           />
         </Box>
         {error && <Text color="red">{error}</Text>}
@@ -104,16 +114,17 @@ export function Settings({ npub, onClose }: { npub: string; onClose: () => void 
     );
   }
 
-  // menu
   return (
     <Box flexDirection="column" gap={1}>
       {header}
       <SelectInput
-        items={[{ label: "Reveal recovery phrase (back up this identity)", value: "reveal" }]}
-        onSelect={() => {
-          if (protection === "device") reveal("");
-          else setPhase({ name: "passphrase" });
-        }}
+        items={[
+          {
+            label: `Reveal your backup (${state.kind !== "none" && state.secret_kind === "nsec" ? "secret key" : "recovery phrase"})`,
+            value: "reveal",
+          },
+        ]}
+        onSelect={() => setPhase(device ? { name: "confirm" } : { name: "passphrase" })}
       />
       <Text dimColor>Esc to go back.</Text>
     </Box>

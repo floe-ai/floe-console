@@ -28,17 +28,27 @@ You do not need to install Floe first: the console depends on Floe (`github:floe
 
 ## How it sits on Floe
 
-- **Floe is a dependency, called only through its bin.** The console resolves the `floe` CLI from its own `node_modules` (never from PATH) and runs it as `node <floe bin>`. It uses `floe up` to make the substrate reachable. Nothing else inside the Floe package is touched.
+- **Floe is a dependency, used only through its public client.** The console imports `floe/identity` from its own copy of Floe (`github:floe-ai/floe#semver:^0.3.0`) and nothing else inside the Floe package. Connecting to Floe's identity agent starts Floe where this machine's `services.start_on_demand` allows it.
 - **Floe finds it by its package.json, not a registry write.** The `floe.surface` field (name `console`, bin `floe-console`) is how Floe's boot menu detects an installed console. Nothing runs at install and nothing is written at launch.
 - **The compiled `dist/` is committed.** `npm install -g github:…` cannot build or run install scripts for a git package: npm prepares a git package with a nested install that inherits `--global`, which installs the package over itself and fails (verified on npm 11.3). So the package has no `build`, `prepare`, or `postinstall` script, and ships `dist/` in the repo. A test fails if `dist/` is not exactly what the source compiles to.
 
 ## Identity
 
-The substrate never sees a recovery phrase or a private key. The person holds a keypair (BIP-39 → NIP-06); authentication is a signed challenge (NIP-42 kind 22242).
+Floe owns the identity, not the console. Floe's identity agent holds the key, signs, and pushes the console short-lived bearers, renewed before they expire. The console holds no key, stores no key, and never shows the npub. Every Floe surface on this machine shares the same identity.
 
-First run creates the identity silently and shows the recovery phrase once, to be written down. The phrase is stored encrypted on this machine (scrypt + AES-256-GCM) in the per-user config dir, under a passphrase. A blank passphrase means this device is the authentication — anyone with access to this machine is this identity. The phrase can be revealed again in settings (`g`), and restored on another machine from the first-run screen.
+The console draws the screens; Floe does the work:
 
-Registering a folder as a workspace is the act of joining it — there is no admission step in first run.
+- **Create** — a name and a passphrase. Blank means this device protects it: anyone who can use this computer as you can act as you, and the recovery phrase is the only copy that survives this machine. The phrase is shown once, to be written down.
+- **Unlock** — only for a passphrase identity. It always offers "Forgot passphrase" (Esc).
+- **Restore** — from the recovery phrase, at first run or from "Forgot passphrase".
+- **Reveal** — in settings (`g`). A passphrase identity asks for the passphrase; a device identity asks for confirmation. An identity made before recovery phrases shows its secret key (nsec) instead.
+- **Forgot passphrase without the phrase** — Floe makes a new identity and gives it the same workspaces on this machine. Work done before stays credited to the old identity.
+
+The same flows exist without any surface: `floe identity status|create|unlock|lock|reveal|restore|replace|join|sessions`.
+
+**Earlier consoles** kept their own identity file (`%APPDATA%\floe-console\identity.key.json` on Windows). If the console finds one, it offers to bring it into Floe or set it aside. It never adopts or drops it silently. After a successful import the console deletes its file; a file set aside is renamed with a date, never deleted.
+
+Registering a folder as a workspace is the act of joining it; there is no admission step in first run.
 
 ## Develop
 
@@ -47,7 +57,6 @@ npm install
 npm test            # unit tests, including the committed-dist freshness check
 npm run typecheck
 npm run compile     # rebuild dist/ — commit it with the source change
-npx tsx scripts/identity-smoke.ts   # live local identity walk (no Bus needed)
 npm run dev         # run the console from source (needs a real terminal)
 ```
 

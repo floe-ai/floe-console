@@ -4,11 +4,11 @@ import { Box, Text, useApp, useInput } from "ink";
 import TextInput from "ink-text-input";
 import { EventStream } from "../../bus/event-stream.js";
 import { WorkspaceClient, questionText, } from "../../bus/workspace-client.js";
-import { shortNpub } from "./Unlock.js";
 import { Settings } from "./Settings.js";
-export function MainSurface({ npub, workspaceName, workspaceId, bearer, endpoints, }) {
+export function MainSurface({ identity, workspaceName, workspaceId, bearer, endpoints, }) {
     const { exit } = useApp();
-    const client = useMemo(() => new WorkspaceClient({ httpBaseUrl: endpoints.httpBaseUrl, bearerToken: bearer.token, workspaceId }), [endpoints.httpBaseUrl, bearer.token, workspaceId]);
+    const displayName = identity.state.kind === "none" ? "" : identity.state.display_name;
+    const client = useMemo(() => new WorkspaceClient({ httpBaseUrl: endpoints.httpBaseUrl, bearerToken: bearer, workspaceId }), [endpoints.httpBaseUrl, bearer, workspaceId]);
     const [actor, setActor] = useState("unknown");
     const [waiting, setWaiting] = useState([]);
     const [loadError, setLoadError] = useState(null);
@@ -63,7 +63,7 @@ export function MainSurface({ npub, workspaceName, workspaceId, bearer, endpoint
         })();
         stream = new EventStream({
             wsBaseUrl: endpoints.wsBaseUrl,
-            bearerToken: bearer.token,
+            bearerToken: bearer,
             workspaceId,
             startAtCurrent: true,
             handlers: {
@@ -87,7 +87,7 @@ export function MainSurface({ npub, workspaceName, workspaceId, bearer, endpoint
             stream?.stop();
         };
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [client, endpoints.wsBaseUrl, bearer.token, workspaceId]);
+    }, [client, endpoints.wsBaseUrl, bearer, workspaceId]);
     useInput((input, key) => {
         // Settings owns all input while open (including its own two-level Esc).
         if (mode.name === "settings")
@@ -115,7 +115,7 @@ export function MainSurface({ npub, workspaceName, workspaceId, bearer, endpoint
             setMode({ name: "browse" });
         }
     });
-    const header = (_jsxs(Box, { justifyContent: "space-between", children: [_jsxs(Text, { children: [_jsx(Text, { bold: true, children: workspaceName }), " ", _jsxs(Text, { dimColor: true, children: ["\u00B7 ", shortNpub(npub)] })] }), _jsx(Text, { dimColor: true, children: describeStream(streamStatus) })] }));
+    const header = (_jsxs(Box, { justifyContent: "space-between", children: [_jsxs(Text, { children: [_jsx(Text, { bold: true, children: workspaceName }), displayName && _jsxs(Text, { dimColor: true, children: [" \u00B7 ", displayName] })] }), _jsx(Text, { dimColor: true, children: describeStream(streamStatus) })] }));
     if (actor === "unknown") {
         return (_jsxs(Box, { flexDirection: "column", gap: 1, children: [header, _jsx(Text, { dimColor: true, children: "Discovering the Actor your identity executes\u2026" })] }));
     }
@@ -142,7 +142,7 @@ export function MainSurface({ npub, workspaceName, workspaceId, bearer, endpoint
             } }));
     }
     if (mode.name === "settings") {
-        return _jsx(Settings, { npub: npub, onClose: () => setMode({ name: "browse" }) });
+        return _jsx(Settings, { identity: identity, onClose: () => setMode({ name: "browse" }) });
     }
     if (mode.name === "send") {
         return (_jsx(SendWork, { client: client, sourceEndpointId: actor.endpoint_id, onDone: () => setMode({ name: "browse" }) }));
