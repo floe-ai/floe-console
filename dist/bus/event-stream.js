@@ -98,7 +98,11 @@ export class EventStream {
                 if (typeof cursor === "string")
                     this.lastCursor = cursor;
                 const bridges = control.payload?.connected_bridge_ids;
-                this.options.handlers.onCaughtUp(cursor ?? null, Array.isArray(bridges) ? bridges.filter((b) => typeof b === "string") : []);
+                this.options.handlers.onCaughtUp({
+                    cursor: cursor ?? null,
+                    connectedBridgeIds: Array.isArray(bridges) ? bridges.filter((b) => typeof b === "string") : [],
+                    workspaceAccess: control.payload?.workspace_access,
+                });
                 this.emit({ kind: "caught_up", cursor: cursor ?? null });
                 return;
             }

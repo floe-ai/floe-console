@@ -6,8 +6,9 @@ import SelectInput from "ink-select-input";
 import { IdentityError } from "floe/identity";
 import { BackupView } from "../components/Backup.js";
 import { Identities } from "./Identities.js";
+import { WorkspaceAccessScreen } from "./WorkspaceAccess.js";
 import { messageOf } from "../../identity/identity-link.js";
-export function Settings({ identity, onClose }) {
+export function Settings({ identity, workspace, onClose, }) {
     const [phase, setPhase] = useState({ name: "menu" });
     const [passphrase, setPassphrase] = useState("");
     const [error, setError] = useState(null);
@@ -23,7 +24,7 @@ export function Settings({ identity, onClose }) {
             setError(null);
             setPhase({ name: "menu" });
         }
-    }, { isActive: phase.name !== "identities" });
+    }, { isActive: phase.name !== "identities" && phase.name !== "workspace" });
     async function reveal(args) {
         try {
             const { secret_kind, secret } = await identity.reveal(args);
@@ -39,6 +40,9 @@ export function Settings({ identity, onClose }) {
     const header = _jsxs(Text, { bold: true, children: ["Settings", state.kind !== "none" ? ` · ${state.display_name}` : ""] });
     if (phase.name === "identities") {
         return _jsx(Identities, { identity: identity, onBack: () => setPhase({ name: "menu" }) });
+    }
+    if (phase.name === "workspace") {
+        return (_jsx(WorkspaceAccessScreen, { access: workspace.access, client: workspace.client, workspaceName: workspace.name, onBack: () => setPhase({ name: "menu" }) }));
     }
     if (phase.name === "revealed") {
         return (_jsxs(Box, { flexDirection: "column", gap: 1, children: [header, _jsx(Text, { bold: true, children: phase.kind === "phrase" ? "Your recovery phrase" : "Your secret key" }), device && (_jsx(Text, { color: "yellow", children: "This identity has no passphrase: the device is the only thing protecting it. This backup is the only copy that survives this machine, so write it down and keep it safe." })), _jsx(Text, { children: "Write it down. It is a backup to keep, not an address to share." }), _jsx(BackupView, { kind: phase.kind, secret: phase.secret }), _jsx(Text, { dimColor: true, children: "Esc to go back." })] }));
@@ -61,5 +65,12 @@ export function Settings({ identity, onClose }) {
                         value: "reveal",
                     },
                     { label: "Your identities", value: "identities" },
-                ], onSelect: (item) => setPhase(item.value === "identities" ? { name: "identities" } : device ? { name: "confirm" } : { name: "passphrase" }) }), _jsx(Text, { dimColor: true, children: "Esc to go back." })] }));
+                    { label: "Workspace folders and System access", value: "workspace" },
+                ], onSelect: (item) => setPhase(item.value === "identities"
+                    ? { name: "identities" }
+                    : item.value === "workspace"
+                        ? { name: "workspace" }
+                        : device
+                            ? { name: "confirm" }
+                            : { name: "passphrase" }) }), _jsx(Text, { dimColor: true, children: "Esc to go back." })] }));
 }

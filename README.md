@@ -32,7 +32,7 @@ Run the install command again. Floe 0.3.2 runs its services from its own staged 
 
 ## How it sits on Floe
 
-- **Floe is a dependency, used only through its public clients.** The console imports `floe/identity` and `floe/engines` from its own copy of Floe (`github:floe-ai/floe#semver:^0.3.7`) and nothing else inside the Floe package. Connecting to Floe's identity agent starts Floe where this machine's `services.start_on_demand` allows it; engine control is reached after that. If engine control is not up yet, or goes down, the AI engine line recovers by itself when the Bus pushes that a Bridge is connected (`bridge_connected`, or `connected_bridge_ids` in `caught_up`). There is no timer.
+- **Floe is a dependency, used only through its public clients.** The console imports `floe/identity` and `floe/engines` from its own copy of Floe (`github:floe-ai/floe#semver:^0.3.9`) and nothing else inside the Floe package. Connecting to Floe's identity agent starts Floe where this machine's `services.start_on_demand` allows it; engine control is reached after that. If engine control is not up yet, or goes down, the AI engine line recovers by itself when the Bus pushes that a Bridge is connected (`bridge_connected`, or `connected_bridge_ids` in `caught_up`). There is no timer.
 - **Floe finds it by its package.json, not a registry write.** The `floe.surface` field (name `console`, bin `floe-console`) is how Floe's boot menu detects an installed console. Nothing runs at install and nothing is written at launch.
 - **The compiled `dist/` is committed.** `npm install -g github:…` cannot build or run install scripts for a git package: npm prepares a git package with a nested install that inherits `--global`, which installs the package over itself and fails (verified on npm 11.3). So the package has no `build`, `prepare`, or `postinstall` script, and ships `dist/` in the repo. A test fails if `dist/` is not exactly what the source compiles to.
 
@@ -67,6 +67,15 @@ Floe's Bridge pushes whether each AI engine (today, Copilot) can run work. The m
 | Access could not be confirmed, or unreachable | `r` **Try again** |
 
 The console never sees a credential and never asks you to type a command. Floe does not use a `gh` login, so a machine logged in to `gh` can still show "signed out".
+
+## Workspace folders and System access
+
+In settings (`g`) → **Workspace folders and System access**. The screen shows only what Floe pushed (`workspace_access` on `caught_up`, then `workspace_access_changed`); each change is one of Floe's workspace operations, and Floe's own reason is shown when it refuses.
+
+- **Folders** — Actors' file tools can read and change files in the workspace's folders freely, without asking. Add a folder with the same picker first run uses; remove one after a confirmation (nothing in it is deleted). The workspace's own folder cannot be removed.
+- **Commands are not confined.** A command an Actor runs can read, change or delete any file you can, whatever the folders say. The screen says so wherever folders are described.
+- **System access** — off by default. Turning it on asks first and warns: "Actors can read and write anywhere on this machine." Turning it off takes effect at once.
+- **Floe's one-time notice** — older workspaces get a record that their Floe Actors can now use tools inside the workspace's folders. The main screen shows it, with the line about commands, for as long as Floe keeps it. Floe has no way yet to mark it seen, so the console does not hide it by itself.
 
 ## Develop
 

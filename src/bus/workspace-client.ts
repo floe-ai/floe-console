@@ -73,6 +73,13 @@ export interface TurnResult {
   readonly [key: string]: unknown;
 }
 
+/** The part of an operation receipt the console acts on. */
+export interface OperationReceipt {
+  readonly state: string;
+  readonly refusal: { readonly code?: string; readonly message: string } | null;
+  readonly [key: string]: unknown;
+}
+
 export class WorkspaceClient {
   constructor(private readonly options: WorkspaceClientOptions) {}
 
@@ -144,6 +151,33 @@ export class WorkspaceClient {
       body: JSON.stringify(body),
     });
     return this.json<TurnResult>(res, "turn result");
+  }
+
+  /**
+   * Invoke a semantic operation (bus-api.md "Invoke a semantic operation").
+   * The Bus answers 200 with a receipt whether it completed or refused; a
+   * refusal carries Floe's own reason. Version "1" of input and operation is
+   * what the discovered definitions publish for the operations used here.
+   */
+  async invokeOperation(params: {
+    operationId: string;
+    input: Record<string, unknown>;
+    idempotencyKey: string;
+  }): Promise<OperationReceipt> {
+    const res = await fetch(this.url(`/v1/workspaces/${this.options.workspaceId}/operations/invoke`), {
+      method: "POST",
+      headers: this.authHeaders({ "content-type": "application/json" }),
+      body: JSON.stringify({
+        operation_id: params.operationId,
+        operation_version: "1",
+        input_schema_version: "1",
+        idempotency_key: params.idempotencyKey,
+        input: params.input,
+      }),
+    });
+    const body = await this.json<{ kind?: string; receipt?: OperationReceipt }>(res, params.operationId);
+    if (body.kind === "receipt" && body.receipt) return body.receipt;
+    return { state: body.kind ?? "unknown", refusal: null };
   }
 
   /**

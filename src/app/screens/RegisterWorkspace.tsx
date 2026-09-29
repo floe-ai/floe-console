@@ -1,10 +1,10 @@
-import { useEffect, useMemo, useState } from "react";
-import { readdirSync } from "node:fs";
-import { basename, dirname, join } from "node:path";
+import { useState } from "react";
+import { basename } from "node:path";
 import { Box, Text, useInput } from "ink";
 import TextInput from "ink-text-input";
 import Spinner from "ink-spinner";
 import type { JoinOutcome } from "floe/identity";
+import { FolderPicker } from "../components/FolderPicker.js";
 
 /**
  * The identity is in no workspace yet. Registering a folder on this machine is
@@ -13,9 +13,7 @@ import type { JoinOutcome } from "floe/identity";
  * identity's own name and, once it is joined, pushes this console a bearer by
  * itself, which moves the console on.
  *
- * The folder list is read straight off local disk with Node `fs`: the console
- * runs on this machine, and the bus's own browse route is host-gated precisely
- * so a client reads its own disk directly.
+ * The folder list comes from the shared FolderPicker, which reads local disk.
  *
  * Outcomes are shown honestly and never collapsed: `ready` waits for the pushed
  * bearer, `pending` says plainly that the bridge has not finished setting the
@@ -30,12 +28,6 @@ type Phase =
   | { readonly name: "pending" }
   | { readonly name: "problem"; readonly message: string };
 
-interface Entry {
-  readonly kind: "use" | "up" | "dir";
-  readonly label: string;
-  readonly path?: string;
-}
-
 export function RegisterWorkspace({
   onJoin,
   onHold,
@@ -45,33 +37,11 @@ export function RegisterWorkspace({
   onHold: (holding: boolean) => void;
 }): JSX.Element {
   const [phase, setPhase] = useState<Phase>({ name: "pick" });
-  const [dir, setDir] = useState<string>(process.cwd());
-  const [selected, setSelected] = useState(0);
   const [chosen, setChosen] = useState<string | null>(null);
   const [workspaceName, setWorkspaceName] = useState("");
 
-  const entries = useMemo(() => listEntries(dir), [dir]);
-
-  useEffect(() => {
-    setSelected(0);
-  }, [dir]);
-
   useInput((_input, key) => {
-    if (phase.name === "pick") {
-      if (key.upArrow) setSelected((i) => Math.max(0, i - 1));
-      if (key.downArrow) setSelected((i) => Math.min(entries.length - 1, i + 1));
-      if (key.return) {
-        const entry = entries[Math.min(selected, entries.length - 1)];
-        if (!entry) return;
-        if (entry.kind === "use") {
-          setChosen(dir);
-          setWorkspaceName(basename(dir) || dir);
-          setPhase({ name: "details" });
-        } else if (entry.path) {
-          setDir(entry.path);
-        }
-      }
-    } else if (phase.name === "details" && key.escape) {
+    if (phase.name === "details" && key.escape) {
       setPhase({ name: "pick" });
     } else if (phase.name === "pending" && key.return) {
       onHold(false);
@@ -158,36 +128,15 @@ export function RegisterWorkspace({
 
   // pick
   return (
-    <Box flexDirection="column" gap={1}>
-      <Text bold>Choose a workspace folder</Text>
-      <Text dimColor>{dir}</Text>
-      <Box flexDirection="column">
-        {entries.map((e, i) => (
-          <Text key={`${e.kind}:${e.label}`} color={i === selected ? "cyan" : undefined}>
-            {i === selected ? "❯ " : "  "}
-            {e.kind === "use" ? <Text bold>{e.label}</Text> : e.label}
-          </Text>
-        ))}
-      </Box>
-      <Text dimColor>↑/↓ move · Enter open folder or use this one</Text>
-    </Box>
+    <FolderPicker
+      title="Choose a workspace folder"
+      onChoose={(dir) => {
+        setChosen(dir);
+        setWorkspaceName(basename(dir) || dir);
+        setPhase({ name: "details" });
+      }}
+    />
   );
-}
-
-function listEntries(dir: string): Entry[] {
-  const entries: Entry[] = [{ kind: "use", label: `Use this folder (${basename(dir) || dir})` }];
-  const parent = dirname(dir);
-  if (parent && parent !== dir) entries.push({ kind: "up", label: "..", path: parent });
-  try {
-    const names = readdirSync(dir, { withFileTypes: true })
-      .filter((d) => d.isDirectory() && !d.name.startsWith("."))
-      .map((d) => d.name)
-      .sort((a, b) => a.localeCompare(b));
-    for (const name of names) entries.push({ kind: "dir", label: `${name}/`, path: join(dir, name) });
-  } catch {
-    // An unreadable directory simply offers no children; the person can go up.
-  }
-  return entries;
 }
 
 function failedReason(reason: string): string {
