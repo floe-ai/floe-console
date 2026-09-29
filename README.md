@@ -5,7 +5,7 @@ A terminal client for the [Floe](https://github.com/floe-ai/floe) substrate.
 It has exactly three jobs:
 
 1. **See** what the substrate is doing — deliveries, turns, actors, pulses, events.
-2. **Send work in.**
+2. **Send work in**, and see what became of it: received, working, waiting on you, then the Actor's answer (marked as trimmed if it is long). Every step comes from an event Floe pushed.
 3. **Answer what actors ask.** Floe actors can ask a question mid-turn; this client exists so that question can be answered.
 
 It is nothing else. Not a dashboard, not a project manager, not an IDE.

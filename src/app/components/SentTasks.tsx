@@ -53,7 +53,7 @@ function Phase({ task, actor }: { task: Task; actor: string }): JSX.Element {
     case "resuming":
       return (
         <Text dimColor>
-          You answered “{oneLine(phase.answer, 60)}”. {actor} is continuing.
+          You answered “{oneLine(phase.answer, 60)}” · {actor} is continuing…
         </Text>
       );
     case "done":

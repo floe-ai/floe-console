@@ -23,7 +23,7 @@ function Phase({ task, actor }) {
         case "waiting":
             return phase.onYou ? (_jsxs(Text, { color: "yellow", children: [actor, " asked you something. Answer it in Waiting on you."] })) : (_jsxs(Text, { dimColor: true, children: [actor, " is waiting on another Actor."] }));
         case "resuming":
-            return (_jsxs(Text, { dimColor: true, children: ["You answered \u201C", oneLine(phase.answer, 60), "\u201D. ", actor, " is continuing."] }));
+            return (_jsxs(Text, { dimColor: true, children: ["You answered \u201C", oneLine(phase.answer, 60), "\u201D \u00B7 ", actor, " is continuing\u2026"] }));
         case "done":
             return phase.text.trim() ? (_jsxs(Box, { flexDirection: "column", children: [_jsxs(Text, { color: "green", children: [actor, " answered:"] }), _jsx(Answer, { text: phase.text })] })) : (_jsxs(Text, { color: "green", children: [actor, " finished without a reply."] }));
         case "failed":

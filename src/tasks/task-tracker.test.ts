@@ -56,6 +56,17 @@ describe("TaskTracker", () => {
     expect(t.list()[0]?.phase).toEqual({ kind: "waiting", onYou: true, text: "I asked you." });
 
     const ret = { origin: "runtime_request_return", origin_event_id: "evt-task" };
+    // This person's answer ends their own turn: a final result naming the task.
+    t.push(frame("event_submitted", {
+      event: {
+        event_id: "evt-mine",
+        type: "message",
+        source_endpoint_id: ME,
+        destination_json: { kind: "context", context_id: "ctx" },
+        content: { text: "Blue.", data: { origin: "runtime_turn_result", outcome: "completed", final: true, origin_event_id: "evt-task" } },
+      },
+    }));
+    expect(t.list()[0]?.phase.kind).toBe("waiting");
     t.push(frame("event_submitted", {
       event: { event_id: "evt-ret", type: "request.result", content: { text: "Blue.", data: ret }, metadata: ret },
     }));

@@ -12,8 +12,9 @@ import type { PushFrame } from "../bus/types.js";
  *  - resumed:  a `request.result` whose `origin_event_id` is the task.
  *
  * Floe names the task on every result and return (`origin_event_id`), so this
- * never walks the chain itself. It holds only what these few lines need, and
- * only for this session.
+ * never walks the chain itself. Only the Actor the task was sent to can move
+ * it: other turns in the chain, including this person's own answer, name the
+ * same task. It holds only what these few lines need, and only for this session.
  */
 
 export type TaskPhase =
@@ -121,6 +122,10 @@ export class TaskTracker {
 
     if (origin === "runtime_turn_result") {
       const taskId = str(chainField(event, "origin_event_id")) ?? "";
+      // Only the Actor the task went to answers it. This person's own answer to
+      // a question is also a turn result naming the same task, and so is any
+      // other Actor's turn in the chain; neither is the task's answer.
+      if (event.source_endpoint_id !== this.tasks.get(taskId)?.targetEndpointId) return false;
       if (chainField(event, "outcome") === "failed") return this.set(taskId, { kind: "failed", text: textOf(event) });
       if (chainField(event, "final") === false) {
         const awaiting = chainField(event, "awaiting_request_event_ids");
@@ -159,15 +164,16 @@ export class TaskTracker {
   private onBundle(delivery: Json): void {
     const deliveryId = str(delivery.delivery_id);
     if (!deliveryId) return;
+    const isFor = (taskId: string) => this.tasks.get(taskId)?.targetEndpointId === delivery.endpoint_id;
     const trigger = str(delivery.trigger_event_id);
-    if (trigger && this.tasks.has(trigger)) {
+    if (trigger && this.tasks.has(trigger) && isFor(trigger)) {
       this.deliveryTask.set(deliveryId, trigger);
       return;
     }
     // A resumed turn is triggered by a request.result, which names the task.
     for (const ev of Array.isArray(delivery.events) ? delivery.events : []) {
       const taskId = str(chainField(asRecord(ev), "origin_event_id"));
-      if (taskId && this.tasks.has(taskId)) {
+      if (taskId && this.tasks.has(taskId) && isFor(taskId)) {
         this.deliveryTask.set(deliveryId, taskId);
         return;
       }
