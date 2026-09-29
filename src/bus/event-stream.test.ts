@@ -88,6 +88,38 @@ describe("EventStream protocol", () => {
     stream.stop();
   });
 
+  it("reports the Bridges present at caught_up and passes Bridge presence pushes on", async () => {
+    const wsBase = await startServer((ws) => {
+      ws.on("message", () => {
+        ws.send(JSON.stringify({ type: "authenticated", payload: { cursor: "c1" }, at: now() }));
+        ws.send(JSON.stringify({ type: "caught_up", payload: { cursor: "c1", connected_bridge_ids: ["bridge:a"] }, at: now() }));
+        ws.send(JSON.stringify({ type: "bridge_connected", payload: { bridge_id: "bridge:b", workspace_id: "ws:test" }, at: now(), cursor: "c2" }));
+      });
+    });
+
+    let bridges: readonly string[] | undefined;
+    const pushed: string[] = [];
+    const stream = new EventStream({
+      wsBaseUrl: wsBase,
+      bearerToken: "bearer-x",
+      workspaceId: "ws:test",
+      handlers: {
+        onEntry: () => {},
+        onCaughtUp: (_c, b) => {
+          bridges = b;
+        },
+        onPush: (f) => pushed.push(f.type),
+        onStatus: () => {},
+      },
+    });
+    stream.start();
+    await waitFor(() => bridges !== undefined && pushed.length > 0);
+
+    expect(bridges).toEqual(["bridge:a"]);
+    expect(pushed).toEqual(["bridge_connected"]);
+    stream.stop();
+  });
+
   it("resumes from the last cursor after a dropped socket", async () => {
     let connectionCount = 0;
     const authFrames: Record<string, unknown>[] = [];

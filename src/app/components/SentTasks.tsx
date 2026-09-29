@@ -1,5 +1,7 @@
 import { Box, Text } from "ink";
 import type { Task } from "../../tasks/task-tracker.js";
+import type { EnginesView } from "../../engines/engine-link.js";
+import { heldLine } from "../../engines/engine-view.js";
 
 /** How much of an answer is shown before it is marked as trimmed. */
 const ANSWER_LIMIT = 700;
@@ -8,9 +10,11 @@ const SHOWN_TASKS = 3;
 export function SentTasks({
   tasks,
   nameOf,
+  engines,
 }: {
   tasks: Task[];
   nameOf: (endpointId: string | null) => string;
+  engines: EnginesView;
 }): JSX.Element | null {
   if (tasks.length === 0) return null;
   const shown = tasks.slice(0, SHOWN_TASKS);
@@ -24,7 +28,7 @@ export function SentTasks({
             {oneLine(task.text, 90)}
           </Text>
           <Box marginLeft={2} flexDirection="column">
-            <Phase task={task} actor={nameOf(task.targetEndpointId)} />
+            <Phase task={task} actor={nameOf(task.targetEndpointId)} engines={engines} />
           </Box>
         </Box>
       ))}
@@ -33,7 +37,7 @@ export function SentTasks({
   );
 }
 
-function Phase({ task, actor }: { task: Task; actor: string }): JSX.Element {
+function Phase({ task, actor, engines }: { task: Task; actor: string; engines: EnginesView }): JSX.Element {
   const phase = task.phase;
   switch (phase.kind) {
     case "sent":
@@ -42,6 +46,8 @@ function Phase({ task, actor }: { task: Task; actor: string }): JSX.Element {
       return <Text color="red">Floe accepted this but delivered it to no one.</Text>;
     case "received":
       return <Text dimColor>✓ Received by {actor}. Not started yet.</Text>;
+    case "held":
+      return <Text color="yellow">✓ Received · {heldLine(phase, engines)}</Text>;
     case "working":
       return <Text color="cyan">✓ Received · {actor} is working…</Text>;
     case "waiting":

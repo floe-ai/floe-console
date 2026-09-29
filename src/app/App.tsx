@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { Box, Text, useApp, useInput } from "ink";
 import Spinner from "ink-spinner";
 import type { IdentityLink, LinkState } from "../identity/identity-link.js";
+import type { EngineLink } from "../engines/engine-link.js";
 import { findLegacyFile, type LegacyFile } from "../migration/legacy-file.js";
 import { resolveBusEndpoints } from "../bus/config.js";
 import { BackupScreen, type Backup } from "./components/Backup.js";
@@ -18,7 +19,7 @@ import { MainSurface } from "./screens/MainSurface.js";
  * above that routing because the person must finish them first: a backup being
  * shown once, and the offer to bring an earlier console's identity into Floe.
  */
-export function App({ link }: { link: IdentityLink }): JSX.Element {
+export function App({ link, engines }: { link: IdentityLink; engines: EngineLink }): JSX.Element {
   const { exit } = useApp();
   const [state, setState] = useState<LinkState>(() => link.getState());
   const [legacy, setLegacy] = useState<LegacyFile | null>(() => findLegacyFile());
@@ -83,6 +84,7 @@ export function App({ link }: { link: IdentityLink }): JSX.Element {
       return (
         <MainSurface
           identity={identity}
+          engines={engines}
           workspaceName={session.workspace.name}
           workspaceId={session.workspace.workspace_id}
           bearer={session.bearer}

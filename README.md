@@ -5,7 +5,7 @@ A terminal client for the [Floe](https://github.com/floe-ai/floe) substrate.
 It has exactly three jobs:
 
 1. **See** what the substrate is doing — deliveries, turns, actors, pulses, events.
-2. **Send work in**, and see what became of it: received, working, waiting on you, then the Actor's answer (marked as trimmed if it is long). Every step comes from an event Floe pushed.
+2. **Send work in**, and see what became of it: received, working, waiting on you, then the Actor's answer (marked as trimmed if it is long). Every step comes from an event Floe pushed. If the AI engine is not ready, the console says so before you send, and work you send anyway shows as waiting (for example "waiting for sign-in"), not failed: Floe holds it and runs it once the engine is ready.
 3. **Answer what actors ask.** Floe actors can ask a question mid-turn; this client exists so that question can be answered.
 
 It is nothing else. Not a dashboard, not a project manager, not an IDE.
@@ -32,7 +32,7 @@ Run the install command again. Floe 0.3.2 runs its services from its own staged 
 
 ## How it sits on Floe
 
-- **Floe is a dependency, used only through its public client.** The console imports `floe/identity` from its own copy of Floe (`github:floe-ai/floe#semver:^0.3.4`) and nothing else inside the Floe package. Connecting to Floe's identity agent starts Floe where this machine's `services.start_on_demand` allows it.
+- **Floe is a dependency, used only through its public clients.** The console imports `floe/identity` and `floe/engines` from its own copy of Floe (`github:floe-ai/floe#semver:^0.3.7`) and nothing else inside the Floe package. Connecting to Floe's identity agent starts Floe where this machine's `services.start_on_demand` allows it; engine control is reached after that. If engine control is not up yet, or goes down, the AI engine line recovers by itself when the Bus pushes that a Bridge is connected (`bridge_connected`, or `connected_bridge_ids` in `caught_up`). There is no timer.
 - **Floe finds it by its package.json, not a registry write.** The `floe.surface` field (name `console`, bin `floe-console`) is how Floe's boot menu detects an installed console. Nothing runs at install and nothing is written at launch.
 - **The compiled `dist/` is committed.** `npm install -g github:…` cannot build or run install scripts for a git package: npm prepares a git package with a nested install that inherits `--global`, which installs the package over itself and fails (verified on npm 11.3). So the package has no `build`, `prepare`, or `postinstall` script, and ships `dist/` in the repo. A test fails if `dist/` is not exactly what the source compiles to.
 
@@ -54,6 +54,19 @@ The same flows exist without any surface: `floe identity status|create|unlock|lo
 **Earlier consoles** kept their own identity file (`%APPDATA%\floe-console\identity.key.json` on Windows). If the console finds one, it offers to bring it into Floe or set it aside. It never adopts or drops it silently. After a successful import the console deletes its file; a file set aside is renamed with a date and stays until you delete it in "Your identities".
 
 Registering a folder as a workspace is the act of joining it; there is no admission step in first run.
+
+## AI engine sign-in
+
+Floe's Bridge pushes whether each AI engine (today, Copilot) can run work. The main screen shows Floe's own message for it and the one action Floe asks for:
+
+| Floe says | The console offers |
+|---|---|
+| Signed out | `i` **Sign in**: Floe opens GitHub's own sign-in in your browser. The console shows starting → finish in your browser → finished, failed or cancelled, with `c` to cancel. |
+| No plan | **Check subscription**. Signing in again will not help. `r` checks again once it is fixed. |
+| Blocked by an organisation | **Contact administrator**. Signing in again will not help. `r` checks again once it is allowed. |
+| Access could not be confirmed, or unreachable | `r` **Try again** |
+
+The console never sees a credential and never asks you to type a command. Floe does not use a `gh` login, so a machine logged in to `gh` can still show "signed out".
 
 ## Develop
 

@@ -12,7 +12,10 @@ import type { BusEndpoints } from "../../bus/config.js";
 import type { IdentityClient } from "floe/identity";
 import { Settings } from "./Settings.js";
 import { SentTasks } from "../components/SentTasks.js";
+import { EngineStatus } from "../components/EngineStatus.js";
 import { TaskTracker, type Task } from "../../tasks/task-tracker.js";
+import type { EngineLink, EnginesView } from "../../engines/engine-link.js";
+import { engineKeys, sendWarnings } from "../../engines/engine-view.js";
 
 /**
  * The default surface once authenticated. Three jobs, nothing else:
@@ -48,12 +51,15 @@ type Mode =
 
 export function MainSurface({
   identity,
+  engines,
   workspaceName,
   workspaceId,
   bearer,
   endpoints,
 }: {
   identity: IdentityClient;
+  /** Whether the AI engine can run work, pushed by Floe's Bridge. */
+  engines: EngineLink;
   workspaceName: string;
   workspaceId: string;
   /** Pushed by Floe, and pushed again renewed before it expires. */
@@ -79,6 +85,12 @@ export function MainSurface({
   const [answers, setAnswers] = useState<Record<string, AnswerState>>({});
   const [mode, setMode] = useState<Mode>({ name: "browse" });
   const [selected, setSelected] = useState(0);
+  const [engineView, setEngineView] = useState<EnginesView>(() => engines.getView());
+
+  useEffect(() => {
+    setEngineView(engines.getView());
+    return engines.subscribe(setEngineView);
+  }, [engines]);
 
   const answersRef = useRef(answers);
   answersRef.current = answers;
@@ -138,11 +150,14 @@ export function MainSurface({
       afterCursor: cursorRef.current,
       handlers: {
         onStatus: (s) => setStreamStatus(s),
-        onCaughtUp: () => {},
+        onCaughtUp: (_cursor, bridges) => {
+          if (bridges.length > 0) engines.bridgeConnected();
+        },
         onEntry: () => {},
         onPush: (frame) => {
           cursorRef.current = frame.cursor;
           setLastActivity(`${frame.type} · ${new Date(frame.at).toLocaleTimeString()}`);
+          if (frame.type === "bridge_connected") engines.bridgeConnected();
           const tracker = trackerRef.current;
           if (tracker?.push(frame)) setTasks(tracker.list());
         },
@@ -169,6 +184,11 @@ export function MainSurface({
       if (input === "q") exit();
       if (input === "s") setMode({ name: "send" });
       if (input === "g") setMode({ name: "settings" });
+      const engineKey = engineKeys(engineView).find((k) => k.key === input);
+      if (engineKey?.act === "reconnect") void engines.connect();
+      if (engineKey?.act === "sign_in") void engines.signIn(engineKey.engine);
+      if (engineKey?.act === "refresh") void engines.refresh(engineKey.engine);
+      if (engineKey?.act === "cancel") void engines.cancelSignIn(engineKey.engine);
       if (waiting.length > 0) {
         if (key.upArrow) setSelected((i) => Math.max(0, i - 1));
         if (key.downArrow) setSelected((i) => Math.min(waiting.length - 1, i + 1));
@@ -249,6 +269,7 @@ export function MainSurface({
       <SendWork
         client={client}
         sourceEndpointId={actor.endpoint_id}
+        warnings={sendWarnings(engineView)}
         onDone={() => setMode({ name: "browse" })}
       />
     );
@@ -258,6 +279,8 @@ export function MainSurface({
     <Box flexDirection="column" gap={1}>
       {header}
       {loadError && <Text color="red">{loadError}</Text>}
+
+      <EngineStatus view={engineView} />
 
       <Box flexDirection="column">
         <Text bold>Waiting on you ({waiting.length})</Text>
@@ -277,13 +300,20 @@ export function MainSurface({
         )}
       </Box>
 
-      <SentTasks tasks={tasks} nameOf={(id) => (id ? actorNames.get(id) ?? "the Actor" : "the Actor")} />
+      <SentTasks
+        tasks={tasks}
+        engines={engineView}
+        nameOf={(id) => (id ? actorNames.get(id) ?? "the Actor" : "the Actor")}
+      />
 
       <Box flexDirection="column">
         <Text dimColor>Live: {lastActivity ?? "waiting for activity…"}</Text>
       </Box>
 
-      <Text dimColor>↑/↓ select · Enter answer · s send work · g settings · q quit</Text>
+      <Text dimColor>
+        ↑/↓ select · Enter answer · s send work
+        {engineKeys(engineView).map((k) => ` · ${k.key} ${k.label}`).join("")} · g settings · q quit
+      </Text>
     </Box>
   );
 }
@@ -320,10 +350,13 @@ function AnswerPanel({
 function SendWork({
   client,
   sourceEndpointId,
+  warnings,
   onDone,
 }: {
   client: WorkspaceClient;
   sourceEndpointId: string;
+  /** Why work sent now would wait, shown before it is sent. */
+  warnings: readonly string[];
   onDone: () => void;
 }): JSX.Element {
   const [targets, setTargets] = useState<Endpoint[] | null>(null);
@@ -352,10 +385,17 @@ function SendWork({
   if (error) return <Text color="red">{error}</Text>;
   if (!targets) return <Text>Loading actors…</Text>;
 
+  const notice = warnings.map((line) => (
+    <Text key={line} color="yellow">
+      {line}
+    </Text>
+  ));
+
   if (!target) {
     return (
       <Box flexDirection="column" gap={1}>
         <Text bold>Send work — choose an actor</Text>
+        {notice}
         {targets.length === 0 ? (
           <Text dimColor>No actors to send to.</Text>
         ) : (
@@ -374,6 +414,7 @@ function SendWork({
   return (
     <Box flexDirection="column" gap={1}>
       <Text bold>Send work to {target.name ?? target.endpoint_id}</Text>
+      {notice}
       <Box>
         <Text>{"> "}</Text>
         <TextInput
