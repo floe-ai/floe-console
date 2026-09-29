@@ -97,7 +97,8 @@ export class EventStream {
                 const cursor = control.payload?.cursor ?? this.lastCursor;
                 if (typeof cursor === "string")
                     this.lastCursor = cursor;
-                this.options.handlers.onCaughtUp(cursor ?? null);
+                const bridges = control.payload?.connected_bridge_ids;
+                this.options.handlers.onCaughtUp(cursor ?? null, Array.isArray(bridges) ? bridges.filter((b) => typeof b === "string") : []);
                 this.emit({ kind: "caught_up", cursor: cursor ?? null });
                 return;
             }

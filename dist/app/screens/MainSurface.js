@@ -90,11 +90,16 @@ export function MainSurface({ identity, engines, workspaceName, workspaceId, bea
             afterCursor: cursorRef.current,
             handlers: {
                 onStatus: (s) => setStreamStatus(s),
-                onCaughtUp: () => { },
+                onCaughtUp: (_cursor, bridges) => {
+                    if (bridges.length > 0)
+                        engines.bridgeConnected();
+                },
                 onEntry: () => { },
                 onPush: (frame) => {
                     cursorRef.current = frame.cursor;
                     setLastActivity(`${frame.type} · ${new Date(frame.at).toLocaleTimeString()}`);
+                    if (frame.type === "bridge_connected")
+                        engines.bridgeConnected();
                     const tracker = trackerRef.current;
                     if (tracker?.push(frame))
                         setTasks(tracker.list());

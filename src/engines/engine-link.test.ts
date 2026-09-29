@@ -67,6 +67,38 @@ function connected(view: EnginesView) {
 const tick = () => new Promise((r) => setImmediate(r));
 
 describe("EngineLink", () => {
+  it("reconnects by itself when Floe says a Bridge came up, once, and not while connected", async () => {
+    let calls = 0;
+    let available = false;
+    let current = wire({ copilot: signedOut });
+    const link = new EngineLink(async () => {
+      calls += 1;
+      if (!available) throw new Error("Floe's engine control is not running.");
+      return current.client;
+    });
+    await link.connect();
+    expect(link.getView().kind).toBe("unavailable");
+
+    available = true;
+    link.bridgeConnected();
+    link.bridgeConnected();
+    await tick();
+    expect(calls).toBe(2);
+    expect(connected(link.getView()).engines.copilot?.authentication).toBe("signed_out");
+
+    link.bridgeConnected();
+    await tick();
+    expect(calls).toBe(2);
+
+    current.close();
+    expect(link.getView().kind).toBe("unavailable");
+    current = wire({ copilot: ready });
+    link.bridgeConnected();
+    await tick();
+    expect(calls).toBe(3);
+    expect(connected(link.getView()).engines.copilot?.phase).toBe("ready");
+  });
+
   it("shows the welcome state, then every pushed change", async () => {
     const w = wire({ copilot: signedOut });
     const link = new EngineLink(async () => w.client);

@@ -39,6 +39,7 @@ export class EngineLink {
   private view: EnginesView = { kind: "connecting" };
   private readonly listeners = new Set<(view: EnginesView) => void>();
   private client: EnginesClient | null = null;
+  private connecting: Promise<void> | null = null;
 
   constructor(private readonly connectFn: Connect = () => connectEngines({ surface: "console" })) {}
 
@@ -51,7 +52,24 @@ export class EngineLink {
     return () => this.listeners.delete(listener);
   }
 
+  /**
+   * Floe's Bus pushed that a Bridge (which serves engine control) is connected:
+   * reconnect if the console is not already connected or connecting.
+   */
+  bridgeConnected(): void {
+    if (this.client || this.connecting) return;
+    void this.connect();
+  }
+
   async connect(): Promise<void> {
+    if (this.connecting) return this.connecting;
+    this.connecting = this.open().finally(() => {
+      this.connecting = null;
+    });
+    return this.connecting;
+  }
+
+  private async open(): Promise<void> {
     this.set({ kind: "connecting" });
     try {
       const client = await this.connectFn();
@@ -59,6 +77,7 @@ export class EngineLink {
       client.onState((engines) => this.update({ engines: { ...engines } }));
       client.onSignIn((event) => this.onSignIn(event));
       client.onClose(() => {
+        if (this.client !== client) return;
         this.client = null;
         this.set({
           kind: "unavailable",

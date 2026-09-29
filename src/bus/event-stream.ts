@@ -33,7 +33,8 @@ export type StreamStatus =
 
 export interface EventStreamHandlers {
   onEntry(entry: StreamEntry): void;
-  onCaughtUp(cursor: string | null): void;
+  /** `connectedBridgeIds`: the Bridges serving this Workspace at that instant. */
+  onCaughtUp(cursor: string | null, connectedBridgeIds: readonly string[]): void;
   onStatus(status: StreamStatus): void;
   /**
    * A delivery is waiting for a client-executed Endpoint. Optional: only the
@@ -162,7 +163,7 @@ export class EventStream {
       return;
     }
 
-    const control = frame as { type?: string; payload?: { cursor?: string | null } };
+    const control = frame as { type?: string; payload?: { cursor?: string | null; connected_bridge_ids?: unknown } };
     switch (control.type) {
       case "authenticated":
         this.hasConnectedOnce = true;
@@ -173,7 +174,11 @@ export class EventStream {
       case "caught_up": {
         const cursor = control.payload?.cursor ?? this.lastCursor;
         if (typeof cursor === "string") this.lastCursor = cursor;
-        this.options.handlers.onCaughtUp(cursor ?? null);
+        const bridges = control.payload?.connected_bridge_ids;
+        this.options.handlers.onCaughtUp(
+          cursor ?? null,
+          Array.isArray(bridges) ? bridges.filter((b): b is string => typeof b === "string") : [],
+        );
         this.emit({ kind: "caught_up", cursor: cursor ?? null });
         return;
       }
