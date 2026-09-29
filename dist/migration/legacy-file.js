@@ -1,6 +1,6 @@
-import { existsSync, readFileSync, renameSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { homedir, platform } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 export function legacyFilePath() {
     const home = homedir();
     switch (platform()) {
@@ -37,5 +37,33 @@ export function setAsideLegacyFile(file, now = new Date()) {
 }
 /** Only after Floe has imported it: Floe now holds the identity. */
 export function deleteLegacyFile(file) {
+    rmSync(file.path, { force: true });
+}
+const LEFTOVER = /^identity\.key\.json(\.[^\\/]+\.old)?$/;
+export function listLeftoverFiles(dir = dirname(legacyFilePath())) {
+    let names;
+    try {
+        names = readdirSync(dir);
+    }
+    catch {
+        return [];
+    }
+    return names
+        .filter((name) => LEFTOVER.test(name))
+        .sort()
+        .map((name) => {
+        const path = join(dir, name);
+        const found = findLegacyFile(path);
+        const contents = (found?.contents ?? null);
+        return {
+            path,
+            name,
+            createdAt: typeof contents?.created_at === "string" ? contents.created_at : null,
+            protection: found?.protection ?? "unknown",
+            npub: typeof contents?.npub === "string" ? contents.npub : null,
+        };
+    });
+}
+export function deleteLeftoverFile(file) {
     rmSync(file.path, { force: true });
 }

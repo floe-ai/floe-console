@@ -1,6 +1,6 @@
-import { existsSync, readFileSync, renameSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, renameSync, rmSync } from "node:fs";
 import { homedir, platform } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 /**
  * The identity file earlier consoles kept for themselves, before Floe owned the
@@ -51,5 +51,49 @@ export function setAsideLegacyFile(file: LegacyFile, now = new Date()): string {
 
 /** Only after Floe has imported it: Floe now holds the identity. */
 export function deleteLegacyFile(file: LegacyFile): void {
+  rmSync(file.path, { force: true });
+}
+
+/**
+ * An identity file an earlier console left on this machine: the live one (while
+ * it waits to be imported) or a copy set aside by "start fresh" or "I don't know
+ * this passphrase". Floe never looks in the console's folder, so the console
+ * lists these itself; otherwise they would be identities nobody can see.
+ */
+export interface LeftoverFile {
+  readonly path: string;
+  readonly name: string;
+  readonly createdAt: string | null;
+  readonly protection: "passphrase" | "device" | "unknown";
+  readonly npub: string | null;
+}
+
+const LEFTOVER = /^identity\.key\.json(\.[^\\/]+\.old)?$/;
+
+export function listLeftoverFiles(dir = dirname(legacyFilePath())): LeftoverFile[] {
+  let names: string[];
+  try {
+    names = readdirSync(dir);
+  } catch {
+    return [];
+  }
+  return names
+    .filter((name) => LEFTOVER.test(name))
+    .sort()
+    .map((name) => {
+      const path = join(dir, name);
+      const found = findLegacyFile(path);
+      const contents = (found?.contents ?? null) as { created_at?: unknown; npub?: unknown } | null;
+      return {
+        path,
+        name,
+        createdAt: typeof contents?.created_at === "string" ? contents.created_at : null,
+        protection: found?.protection ?? "unknown",
+        npub: typeof contents?.npub === "string" ? contents.npub : null,
+      };
+    });
+}
+
+export function deleteLeftoverFile(file: LeftoverFile): void {
   rmSync(file.path, { force: true });
 }

@@ -32,7 +32,7 @@ Run the install command again. Floe 0.3.2 runs its services from its own staged 
 
 ## How it sits on Floe
 
-- **Floe is a dependency, used only through its public client.** The console imports `floe/identity` from its own copy of Floe (`github:floe-ai/floe#semver:^0.3.0`) and nothing else inside the Floe package. Connecting to Floe's identity agent starts Floe where this machine's `services.start_on_demand` allows it.
+- **Floe is a dependency, used only through its public client.** The console imports `floe/identity` from its own copy of Floe (`github:floe-ai/floe#semver:^0.3.4`) and nothing else inside the Floe package. Connecting to Floe's identity agent starts Floe where this machine's `services.start_on_demand` allows it.
 - **Floe finds it by its package.json, not a registry write.** The `floe.surface` field (name `console`, bin `floe-console`) is how Floe's boot menu detects an installed console. Nothing runs at install and nothing is written at launch.
 - **The compiled `dist/` is committed.** `npm install -g github:…` cannot build or run install scripts for a git package: npm prepares a git package with a nested install that inherits `--global`, which installs the package over itself and fails (verified on npm 11.3). So the package has no `build`, `prepare`, or `postinstall` script, and ships `dist/` in the repo. A test fails if `dist/` is not exactly what the source compiles to.
 
@@ -46,11 +46,12 @@ The console draws the screens; Floe does the work:
 - **Unlock** — only for a passphrase identity. It always offers "Forgot passphrase" (Esc).
 - **Restore** — from the recovery phrase, at first run or from "Forgot passphrase".
 - **Reveal** — in settings (`g`). A passphrase identity asks for the passphrase; a device identity asks for confirmation. An identity made before recovery phrases shows its secret key (nsec) instead.
+- **Your identities** — in settings (`g`). Lists every identity kept on this machine: the one in use, each copy Floe set aside (restore, replace, import), and any file an earlier console left behind. Each shows when it was made, how it is protected and whether it has a recovery phrase. npubs stay hidden until you press `n`. Any of them can be deleted for good; deleting the one in use ends every session and returns the console to first run.
 - **Forgot passphrase without the phrase** — Floe makes a new identity and gives it the same workspaces on this machine. Work done before stays credited to the old identity.
 
 The same flows exist without any surface: `floe identity status|create|unlock|lock|reveal|restore|replace|join|sessions`.
 
-**Earlier consoles** kept their own identity file (`%APPDATA%\floe-console\identity.key.json` on Windows). If the console finds one, it offers to bring it into Floe or set it aside. It never adopts or drops it silently. After a successful import the console deletes its file; a file set aside is renamed with a date, never deleted.
+**Earlier consoles** kept their own identity file (`%APPDATA%\floe-console\identity.key.json` on Windows). If the console finds one, it offers to bring it into Floe or set it aside. It never adopts or drops it silently. After a successful import the console deletes its file; a file set aside is renamed with a date and stays until you delete it in "Your identities".
 
 Registering a folder as a workspace is the act of joining it; there is no admission step in first run.
 

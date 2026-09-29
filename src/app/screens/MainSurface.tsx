@@ -306,7 +306,6 @@ function AnswerPanel({
       <Text bold>Answer</Text>
       <Box flexDirection="column" borderStyle="round" paddingX={1}>
         <Text>{questionText(item)}</Text>
-        <Text dimColor>asked on delivery {item.delivery_id}</Text>
       </Box>
       {answer?.kind === "error" && <Text color="red">{answer.message}</Text>}
       <Box>

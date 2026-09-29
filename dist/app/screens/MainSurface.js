@@ -173,7 +173,7 @@ export function MainSurface({ identity, workspaceName, workspaceId, bearer, endp
 function AnswerPanel({ item, answer, onSubmit, onCancel, }) {
     const [body, setBody] = useState("");
     void onCancel;
-    return (_jsxs(Box, { flexDirection: "column", gap: 1, children: [_jsx(Text, { bold: true, children: "Answer" }), _jsxs(Box, { flexDirection: "column", borderStyle: "round", paddingX: 1, children: [_jsx(Text, { children: questionText(item) }), _jsxs(Text, { dimColor: true, children: ["asked on delivery ", item.delivery_id] })] }), answer?.kind === "error" && _jsx(Text, { color: "red", children: answer.message }), _jsxs(Box, { children: [_jsx(Text, { children: "> " }), _jsx(TextInput, { value: body, onChange: setBody, onSubmit: () => body.trim() && onSubmit(body) })] }), _jsx(Text, { dimColor: true, children: "Enter to send \u00B7 Esc to go back" })] }));
+    return (_jsxs(Box, { flexDirection: "column", gap: 1, children: [_jsx(Text, { bold: true, children: "Answer" }), _jsx(Box, { flexDirection: "column", borderStyle: "round", paddingX: 1, children: _jsx(Text, { children: questionText(item) }) }), answer?.kind === "error" && _jsx(Text, { color: "red", children: answer.message }), _jsxs(Box, { children: [_jsx(Text, { children: "> " }), _jsx(TextInput, { value: body, onChange: setBody, onSubmit: () => body.trim() && onSubmit(body) })] }), _jsx(Text, { dimColor: true, children: "Enter to send \u00B7 Esc to go back" })] }));
 }
 function SendWork({ client, sourceEndpointId, onDone, }) {
     const [targets, setTargets] = useState(null);

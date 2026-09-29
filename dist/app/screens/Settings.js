@@ -5,6 +5,7 @@ import TextInput from "ink-text-input";
 import SelectInput from "ink-select-input";
 import { IdentityError } from "floe/identity";
 import { BackupView } from "../components/Backup.js";
+import { Identities } from "./Identities.js";
 import { messageOf } from "../../identity/identity-link.js";
 export function Settings({ identity, onClose }) {
     const [phase, setPhase] = useState({ name: "menu" });
@@ -22,7 +23,7 @@ export function Settings({ identity, onClose }) {
             setError(null);
             setPhase({ name: "menu" });
         }
-    });
+    }, { isActive: phase.name !== "identities" });
     async function reveal(args) {
         try {
             const { secret_kind, secret } = await identity.reveal(args);
@@ -36,6 +37,9 @@ export function Settings({ identity, onClose }) {
         }
     }
     const header = _jsxs(Text, { bold: true, children: ["Settings", state.kind !== "none" ? ` · ${state.display_name}` : ""] });
+    if (phase.name === "identities") {
+        return _jsx(Identities, { identity: identity, onBack: () => setPhase({ name: "menu" }) });
+    }
     if (phase.name === "revealed") {
         return (_jsxs(Box, { flexDirection: "column", gap: 1, children: [header, _jsx(Text, { bold: true, children: phase.kind === "phrase" ? "Your recovery phrase" : "Your secret key" }), device && (_jsx(Text, { color: "yellow", children: "This identity has no passphrase: the device is the only thing protecting it. This backup is the only copy that survives this machine, so write it down and keep it safe." })), _jsx(Text, { children: "Write it down. It is a backup to keep, not an address to share." }), _jsx(BackupView, { kind: phase.kind, secret: phase.secret }), _jsx(Text, { dimColor: true, children: "Esc to go back." })] }));
     }
@@ -56,5 +60,6 @@ export function Settings({ identity, onClose }) {
                         label: `Reveal your backup (${state.kind !== "none" && state.secret_kind === "nsec" ? "secret key" : "recovery phrase"})`,
                         value: "reveal",
                     },
-                ], onSelect: () => setPhase(device ? { name: "confirm" } : { name: "passphrase" }) }), _jsx(Text, { dimColor: true, children: "Esc to go back." })] }));
+                    { label: "Your identities", value: "identities" },
+                ], onSelect: (item) => setPhase(item.value === "identities" ? { name: "identities" } : device ? { name: "confirm" } : { name: "passphrase" }) }), _jsx(Text, { dimColor: true, children: "Esc to go back." })] }));
 }

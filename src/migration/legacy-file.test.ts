@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { findLegacyFile, setAsideLegacyFile } from "./legacy-file.js";
+import { deleteLeftoverFile, findLegacyFile, listLeftoverFiles, setAsideLegacyFile } from "./legacy-file.js";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -31,5 +31,18 @@ describe("legacy console identity file", () => {
     expect(target).toBe(`${path}.2026-10-01-2.old`);
     expect(existsSync(path)).toBe(false);
     expect(existsSync(`${path}.2026-10-01.old`)).toBe(true);
+  });
+
+  it("lists every file an earlier console left, and nothing else", () => {
+    const dir = scratch();
+    writeFileSync(join(dir, "identity.key.json.2026-09-16.old"), JSON.stringify({ version: 1, npub: "npub1a", created_at: "2026-09-16T00:00:00Z", protection: "passphrase" }));
+    writeFileSync(join(dir, "identity.key.json.2026-09-28-2.old"), "not json");
+    writeFileSync(join(dir, "settings.json"), "{}");
+    const found = listLeftoverFiles(dir);
+    expect(found.map((f) => f.name)).toEqual(["identity.key.json.2026-09-16.old", "identity.key.json.2026-09-28-2.old"]);
+    expect(found[0]).toMatchObject({ createdAt: "2026-09-16T00:00:00Z", protection: "passphrase", npub: "npub1a" });
+    expect(found[1]).toMatchObject({ createdAt: null, protection: "unknown", npub: null });
+    deleteLeftoverFile(found[0]!);
+    expect(listLeftoverFiles(dir)).toHaveLength(1);
   });
 });

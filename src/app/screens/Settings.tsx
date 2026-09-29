@@ -4,6 +4,7 @@ import TextInput from "ink-text-input";
 import SelectInput from "ink-select-input";
 import { IdentityError, type IdentityClient, type SecretKind } from "floe/identity";
 import { BackupView } from "../components/Backup.js";
+import { Identities } from "./Identities.js";
 import { messageOf } from "../../identity/identity-link.js";
 
 /**
@@ -11,13 +12,15 @@ import { messageOf } from "../../identity/identity-link.js";
  * reveal the recovery phrase (or, for an identity made before phrases, its
  * secret key). Floe opens it; a passphrase identity needs the passphrase, and a
  * device identity needs an explicit confirmation because the device is its only
- * guard. Restoring on another machine is first run's "Restore".
+ * guard. Restoring on another machine is first run's "Restore". "Your identities"
+ * lists every identity kept on this machine and deletes them.
  */
 
 type Phase =
   | { readonly name: "menu" }
   | { readonly name: "passphrase" }
   | { readonly name: "confirm" }
+  | { readonly name: "identities" }
   | { readonly name: "revealed"; readonly kind: SecretKind; readonly secret: string };
 
 export function Settings({ identity, onClose }: { identity: IdentityClient; onClose: () => void }): JSX.Element {
@@ -35,7 +38,7 @@ export function Settings({ identity, onClose }: { identity: IdentityClient; onCl
       setError(null);
       setPhase({ name: "menu" });
     }
-  });
+  }, { isActive: phase.name !== "identities" });
 
   async function reveal(args: { passphrase?: string; confirm?: boolean }): Promise<void> {
     try {
@@ -52,6 +55,10 @@ export function Settings({ identity, onClose }: { identity: IdentityClient; onCl
   }
 
   const header = <Text bold>Settings{state.kind !== "none" ? ` · ${state.display_name}` : ""}</Text>;
+
+  if (phase.name === "identities") {
+    return <Identities identity={identity} onBack={() => setPhase({ name: "menu" })} />;
+  }
 
   if (phase.name === "revealed") {
     return (
@@ -123,8 +130,11 @@ export function Settings({ identity, onClose }: { identity: IdentityClient; onCl
             label: `Reveal your backup (${state.kind !== "none" && state.secret_kind === "nsec" ? "secret key" : "recovery phrase"})`,
             value: "reveal",
           },
+          { label: "Your identities", value: "identities" },
         ]}
-        onSelect={() => setPhase(device ? { name: "confirm" } : { name: "passphrase" })}
+        onSelect={(item) =>
+          setPhase(item.value === "identities" ? { name: "identities" } : device ? { name: "confirm" } : { name: "passphrase" })
+        }
       />
       <Text dimColor>Esc to go back.</Text>
     </Box>
