@@ -42,6 +42,7 @@ export function Identities({ identity, onBack }: { identity: IdentityClient; onB
         ...identities.map((held): Row => ({ key: `floe:${held.id}`, kind: "floe", held })),
         ...files.map((file): Row => ({ key: `file:${file.name}`, kind: "file", file })),
       ]);
+      setShowNpub(withNpub);
     } catch (err) {
       setRows([]);
       setError(messageOf(err));
@@ -57,11 +58,7 @@ export function Identities({ identity, onBack }: { identity: IdentityClient; onB
     (input, key) => {
       if (phase.name === "list") {
         if (key.escape) onBack();
-        if (input === "n") {
-          const next = !showNpub;
-          setShowNpub(next);
-          void load(next);
-        }
+        if (input === "n") void load(!showNpub);
         const count = rows?.length ?? 0;
         if (key.upArrow) setSelected((i) => Math.max(0, i - 1));
         if (key.downArrow) setSelected((i) => Math.min(count - 1, i + 1));

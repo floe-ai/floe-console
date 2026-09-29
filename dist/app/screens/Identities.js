@@ -22,6 +22,7 @@ export function Identities({ identity, onBack }) {
                 ...identities.map((held) => ({ key: `floe:${held.id}`, kind: "floe", held })),
                 ...files.map((file) => ({ key: `file:${file.name}`, kind: "file", file })),
             ]);
+            setShowNpub(withNpub);
         }
         catch (err) {
             setRows([]);
@@ -36,11 +37,8 @@ export function Identities({ identity, onBack }) {
         if (phase.name === "list") {
             if (key.escape)
                 onBack();
-            if (input === "n") {
-                const next = !showNpub;
-                setShowNpub(next);
-                void load(next);
-            }
+            if (input === "n")
+                void load(!showNpub);
             const count = rows?.length ?? 0;
             if (key.upArrow)
                 setSelected((i) => Math.max(0, i - 1));
