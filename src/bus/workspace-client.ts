@@ -110,16 +110,6 @@ export class WorkspaceClient {
   }
 
   /**
-   * The Actor this identity executes: the one whose resolved runtime adapter is
-   * `client`. Found by ordinary listing, never by a naming convention or a role
-   * field. Returns null if this workspace exposes no client-executed Actor.
-   */
-  async findClientActor(): Promise<Endpoint | null> {
-    const endpoints = await this.listEndpoints();
-    return endpoints.find((e) => e.adapter_id === "client") ?? null;
-  }
-
-  /**
    * Claim the deliveries waiting for a client-executed Endpoint. The bundle
    * carries the request Events (the questions) in `events`; the text the asking
    * Actor put is each event's `content.text`. Claiming only ever succeeds for a

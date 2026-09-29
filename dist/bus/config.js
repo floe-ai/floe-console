@@ -1,11 +1,10 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 const DEFAULT_HTTP = "http://127.0.0.1:5377";
 export function floeConfigPath() {
-    const explicit = process.env.FLOE_CONFIG?.trim();
-    return resolve(explicit || join(homedir(), ".floe", "config.yaml"));
+    return join(homedir(), ".floe", "config.yaml");
 }
 export function resolveBusEndpoints() {
     let http;

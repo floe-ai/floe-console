@@ -1,14 +1,13 @@
 import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 
 /**
  * Where the Bus lives. The Bus is loopback-only and named in one place: the
- * local, non-secret Floe config (`bus.http_base_url`, `bus.ws_base_url`). The
- * console reads the same file Floe's identity agent serves, found the same way
- * Floe finds it (FLOE_CONFIG, then ~/.floe/config.yaml), so the bearers the
- * agent pushes are always used against the Bus that minted them.
+ * local, non-secret Floe config (`bus.http_base_url`, `bus.ws_base_url`) at
+ * ~/.floe/config.yaml, the file Floe itself reads. No environment variable
+ * changes it, so the console and Floe can never read different configs.
  */
 export interface BusEndpoints {
   readonly httpBaseUrl: string;
@@ -18,8 +17,7 @@ export interface BusEndpoints {
 const DEFAULT_HTTP = "http://127.0.0.1:5377";
 
 export function floeConfigPath(): string {
-  const explicit = process.env.FLOE_CONFIG?.trim();
-  return resolve(explicit || join(homedir(), ".floe", "config.yaml"));
+  return join(homedir(), ".floe", "config.yaml");
 }
 
 export function resolveBusEndpoints(): BusEndpoints {

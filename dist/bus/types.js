@@ -1,3 +1,12 @@
+export function isPushFrame(frame) {
+    if (typeof frame !== "object" || frame === null)
+        return false;
+    const f = frame;
+    return (typeof f.type === "string" &&
+        typeof f.cursor === "string" &&
+        typeof f.payload === "object" &&
+        f.payload !== null);
+}
 /** True for a live/replay data frame (`type: "event_submitted"` with a cursor). */
 export function isStreamEntry(frame) {
     return (typeof frame === "object" &&

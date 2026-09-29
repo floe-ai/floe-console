@@ -19,6 +19,29 @@ export interface StreamEntry {
   readonly cursor: string;
 }
 
+/**
+ * Any pushed frame that carries a resume cursor: `event_submitted`,
+ * `delivery_created`, `delivery_runtime_prepared`, `delivery_failed` and the rest.
+ * Control frames (`authenticated`, `caught_up`) carry no cursor of their own.
+ */
+export interface PushFrame {
+  readonly type: string;
+  readonly payload: Record<string, unknown>;
+  readonly at: string;
+  readonly cursor: string;
+}
+
+export function isPushFrame(frame: unknown): frame is PushFrame {
+  if (typeof frame !== "object" || frame === null) return false;
+  const f = frame as { type?: unknown; payload?: unknown; cursor?: unknown };
+  return (
+    typeof f.type === "string" &&
+    typeof f.cursor === "string" &&
+    typeof f.payload === "object" &&
+    f.payload !== null
+  );
+}
+
 /** True for a live/replay data frame (`type: "event_submitted"` with a cursor). */
 export function isStreamEntry(frame: unknown): frame is StreamEntry {
   return (

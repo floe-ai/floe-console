@@ -1,5 +1,5 @@
 import WebSocket from "ws";
-import { isStreamEntry, isDeliveryAvailable } from "./types.js";
+import { isStreamEntry, isDeliveryAvailable, isPushFrame, } from "./types.js";
 const DEFAULT_MAX_BACKOFF_MS = 15_000;
 const BASE_BACKOFF_MS = 500;
 export class EventStream {
@@ -12,6 +12,11 @@ export class EventStream {
     reconnectTimer;
     constructor(options) {
         this.options = options;
+        this.lastCursor = options.afterCursor ?? null;
+    }
+    /** The position of the last frame seen; hand it to the next stream. */
+    get cursor() {
+        return this.lastCursor;
     }
     /** Open the stream and keep it open, reconnecting on transport failures. */
     start() {
@@ -66,9 +71,13 @@ export class EventStream {
         catch {
             return;
         }
-        if (isStreamEntry(frame)) {
+        if (isPushFrame(frame)) {
             this.lastCursor = frame.cursor;
-            this.options.handlers.onEntry(frame);
+            this.options.handlers.onPush?.(frame);
+            if (isStreamEntry(frame))
+                this.options.handlers.onEntry(frame);
+            else if (isDeliveryAvailable(frame))
+                this.options.handlers.onDeliveryAvailable?.(frame);
             return;
         }
         if (isDeliveryAvailable(frame)) {

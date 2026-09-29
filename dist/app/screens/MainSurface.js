@@ -5,11 +5,17 @@ import TextInput from "ink-text-input";
 import { EventStream } from "../../bus/event-stream.js";
 import { WorkspaceClient, questionText, } from "../../bus/workspace-client.js";
 import { Settings } from "./Settings.js";
+import { SentTasks } from "../components/SentTasks.js";
+import { TaskTracker } from "../../tasks/task-tracker.js";
 export function MainSurface({ identity, workspaceName, workspaceId, bearer, endpoints, }) {
     const { exit } = useApp();
     const displayName = identity.state.kind === "none" ? "" : identity.state.display_name;
     const client = useMemo(() => new WorkspaceClient({ httpBaseUrl: endpoints.httpBaseUrl, bearerToken: bearer, workspaceId }), [endpoints.httpBaseUrl, bearer, workspaceId]);
     const [actor, setActor] = useState("unknown");
+    const [actorNames, setActorNames] = useState(new Map());
+    const [tasks, setTasks] = useState([]);
+    const trackerRef = useRef(null);
+    const cursorRef = useRef(null);
     const [waiting, setWaiting] = useState([]);
     const [loadError, setLoadError] = useState(null);
     const [streamStatus, setStreamStatus] = useState({ kind: "connecting" });
@@ -40,20 +46,28 @@ export function MainSurface({ identity, workspaceName, workspaceId, bearer, endp
             setLoadError(err instanceof Error ? err.message : "Could not claim deliveries.");
         }
     }
-    // Discover the Actor we execute, drain any backlog, and open the stream.
+    // Discover the Actor we execute (the one whose adapter is `client`, never a
+    // naming convention), drain any backlog, and open the stream.
     useEffect(() => {
         let stream = null;
         let endpointId = null;
         let disposed = false;
         (async () => {
             try {
-                const mine = await client.findClientActor();
+                const all = await client.listEndpoints();
                 if (disposed)
                     return;
+                const mine = all.find((e) => e.adapter_id === "client") ?? null;
+                setActorNames(new Map(all.map((e) => [e.endpoint_id, e.name ?? e.endpoint_id])));
                 setActor(mine);
                 if (!mine)
                     return;
                 endpointId = mine.endpoint_id;
+                // Survives a bearer renewal: the same Actor keeps tracking its tasks.
+                if (!trackerRef.current || trackerRef.current.ownEndpointId !== endpointId) {
+                    trackerRef.current = new TaskTracker(endpointId);
+                    setTasks([]);
+                }
                 await claimInto(endpointId);
             }
             catch (err) {
@@ -66,15 +80,19 @@ export function MainSurface({ identity, workspaceName, workspaceId, bearer, endp
             bearerToken: bearer,
             workspaceId,
             startAtCurrent: true,
+            afterCursor: cursorRef.current,
             handlers: {
                 onStatus: (s) => setStreamStatus(s),
                 onCaughtUp: () => { },
-                onEntry: (entry) => {
-                    const t = typeof entry.payload?.type === "string" ? entry.payload.type : "event";
-                    setLastActivity(`${t} · ${new Date(entry.at).toLocaleTimeString()}`);
+                onEntry: () => { },
+                onPush: (frame) => {
+                    cursorRef.current = frame.cursor;
+                    setLastActivity(`${frame.type} · ${new Date(frame.at).toLocaleTimeString()}`);
+                    const tracker = trackerRef.current;
+                    if (tracker?.push(frame))
+                        setTasks(tracker.list());
                 },
                 onDeliveryAvailable: (frame) => {
-                    setLastActivity(`work available · ${new Date().toLocaleTimeString()}`);
                     if (endpointId && frame.payload.delivery.endpoint_id === endpointId) {
                         void claimInto(endpointId);
                     }
@@ -150,7 +168,7 @@ export function MainSurface({ identity, workspaceName, workspaceId, bearer, endp
     return (_jsxs(Box, { flexDirection: "column", gap: 1, children: [header, loadError && _jsx(Text, { color: "red", children: loadError }), _jsxs(Box, { flexDirection: "column", children: [_jsxs(Text, { bold: true, children: ["Waiting on you (", waiting.length, ")"] }), waiting.length === 0 ? (_jsx(Text, { dimColor: true, children: "Nothing is waiting. When an actor asks you, it appears here." })) : (waiting.map((d, i) => {
                         const st = answers[d.delivery_id];
                         return (_jsxs(Text, { color: i === selected ? "cyan" : undefined, children: [i === selected ? "❯ " : "  ", truncate(questionText(d), 80), st ? _jsxs(Text, { dimColor: true, children: [" \u2014 ", describeAnswer(st)] }) : null] }, d.delivery_id));
-                    }))] }), _jsx(Box, { flexDirection: "column", children: _jsxs(Text, { dimColor: true, children: ["Live: ", lastActivity ?? "waiting for activity…"] }) }), _jsx(Text, { dimColor: true, children: "\u2191/\u2193 select \u00B7 Enter answer \u00B7 s send work \u00B7 g settings \u00B7 q quit" })] }));
+                    }))] }), _jsx(SentTasks, { tasks: tasks, nameOf: (id) => (id ? actorNames.get(id) ?? "the Actor" : "the Actor") }), _jsx(Box, { flexDirection: "column", children: _jsxs(Text, { dimColor: true, children: ["Live: ", lastActivity ?? "waiting for activity…"] }) }), _jsx(Text, { dimColor: true, children: "\u2191/\u2193 select \u00B7 Enter answer \u00B7 s send work \u00B7 g settings \u00B7 q quit" })] }));
 }
 function AnswerPanel({ item, answer, onSubmit, onCancel, }) {
     const [body, setBody] = useState("");
@@ -162,7 +180,6 @@ function SendWork({ client, sourceEndpointId, onDone, }) {
     const [error, setError] = useState(null);
     const [target, setTarget] = useState(null);
     const [body, setBody] = useState("");
-    const [sent, setSent] = useState(false);
     const [selected, setSelected] = useState(0);
     useEffect(() => {
         client
@@ -188,8 +205,6 @@ function SendWork({ client, sourceEndpointId, onDone, }) {
         return _jsx(Text, { color: "red", children: error });
     if (!targets)
         return _jsx(Text, { children: "Loading actors\u2026" });
-    if (sent)
-        return (_jsxs(Box, { flexDirection: "column", gap: 1, children: [_jsx(Text, { color: "green", children: "Sent." }), _jsx(Text, { dimColor: true, children: "Esc to go back." })] }));
     if (!target) {
         return (_jsxs(Box, { flexDirection: "column", gap: 1, children: [_jsx(Text, { bold: true, children: "Send work \u2014 choose an actor" }), targets.length === 0 ? (_jsx(Text, { dimColor: true, children: "No actors to send to." })) : (targets.map((e, i) => (_jsxs(Text, { color: i === selected ? "cyan" : undefined, children: [i === selected ? "❯ " : "  ", e.name ?? e.endpoint_id] }, e.endpoint_id)))), _jsx(Text, { dimColor: true, children: "\u2191/\u2193 select \u00B7 Enter choose \u00B7 Esc cancel" })] }));
     }
@@ -198,7 +213,7 @@ function SendWork({ client, sourceEndpointId, onDone, }) {
                                 return;
                             try {
                                 await client.sendWork({ sourceEndpointId, targetEndpointId: target.endpoint_id, body });
-                                setSent(true);
+                                onDone();
                             }
                             catch (err) {
                                 setError(err instanceof Error ? err.message : "Emit failed.");

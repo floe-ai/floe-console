@@ -11,6 +11,8 @@ import {
 import type { BusEndpoints } from "../../bus/config.js";
 import type { IdentityClient } from "floe/identity";
 import { Settings } from "./Settings.js";
+import { SentTasks } from "../components/SentTasks.js";
+import { TaskTracker, type Task } from "../../tasks/task-tracker.js";
 
 /**
  * The default surface once authenticated. Three jobs, nothing else:
@@ -66,6 +68,10 @@ export function MainSurface({
   );
 
   const [actor, setActor] = useState<Endpoint | null | "unknown">("unknown");
+  const [actorNames, setActorNames] = useState<Map<string, string>>(new Map());
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const trackerRef = useRef<TaskTracker | null>(null);
+  const cursorRef = useRef<string | null>(null);
   const [waiting, setWaiting] = useState<Delivery[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [streamStatus, setStreamStatus] = useState<StreamStatus>({ kind: "connecting" });
@@ -97,7 +103,8 @@ export function MainSurface({
     }
   }
 
-  // Discover the Actor we execute, drain any backlog, and open the stream.
+  // Discover the Actor we execute (the one whose adapter is `client`, never a
+  // naming convention), drain any backlog, and open the stream.
   useEffect(() => {
     let stream: EventStream | null = null;
     let endpointId: string | null = null;
@@ -105,11 +112,18 @@ export function MainSurface({
 
     (async () => {
       try {
-        const mine = await client.findClientActor();
+        const all = await client.listEndpoints();
         if (disposed) return;
+        const mine = all.find((e) => e.adapter_id === "client") ?? null;
+        setActorNames(new Map(all.map((e) => [e.endpoint_id, e.name ?? e.endpoint_id])));
         setActor(mine);
         if (!mine) return;
         endpointId = mine.endpoint_id;
+        // Survives a bearer renewal: the same Actor keeps tracking its tasks.
+        if (!trackerRef.current || trackerRef.current.ownEndpointId !== endpointId) {
+          trackerRef.current = new TaskTracker(endpointId);
+          setTasks([]);
+        }
         await claimInto(endpointId);
       } catch (err) {
         if (!disposed) setLoadError(err instanceof Error ? err.message : "Could not reach the Bus.");
@@ -121,15 +135,18 @@ export function MainSurface({
       bearerToken: bearer,
       workspaceId,
       startAtCurrent: true,
+      afterCursor: cursorRef.current,
       handlers: {
         onStatus: (s) => setStreamStatus(s),
         onCaughtUp: () => {},
-        onEntry: (entry) => {
-          const t = typeof entry.payload?.type === "string" ? entry.payload.type : "event";
-          setLastActivity(`${t} · ${new Date(entry.at).toLocaleTimeString()}`);
+        onEntry: () => {},
+        onPush: (frame) => {
+          cursorRef.current = frame.cursor;
+          setLastActivity(`${frame.type} · ${new Date(frame.at).toLocaleTimeString()}`);
+          const tracker = trackerRef.current;
+          if (tracker?.push(frame)) setTasks(tracker.list());
         },
         onDeliveryAvailable: (frame) => {
-          setLastActivity(`work available · ${new Date().toLocaleTimeString()}`);
           if (endpointId && frame.payload.delivery.endpoint_id === endpointId) {
             void claimInto(endpointId);
           }
@@ -260,6 +277,8 @@ export function MainSurface({
         )}
       </Box>
 
+      <SentTasks tasks={tasks} nameOf={(id) => (id ? actorNames.get(id) ?? "the Actor" : "the Actor")} />
+
       <Box flexDirection="column">
         <Text dimColor>Live: {lastActivity ?? "waiting for activity…"}</Text>
       </Box>
@@ -312,7 +331,6 @@ function SendWork({
   const [error, setError] = useState<string | null>(null);
   const [target, setTarget] = useState<Endpoint | null>(null);
   const [body, setBody] = useState("");
-  const [sent, setSent] = useState(false);
   const [selected, setSelected] = useState(0);
 
   useEffect(() => {
@@ -334,13 +352,6 @@ function SendWork({
 
   if (error) return <Text color="red">{error}</Text>;
   if (!targets) return <Text>Loading actors…</Text>;
-  if (sent)
-    return (
-      <Box flexDirection="column" gap={1}>
-        <Text color="green">Sent.</Text>
-        <Text dimColor>Esc to go back.</Text>
-      </Box>
-    );
 
   if (!target) {
     return (
@@ -373,7 +384,7 @@ function SendWork({
             if (!body.trim()) return;
             try {
               await client.sendWork({ sourceEndpointId, targetEndpointId: target.endpoint_id, body });
-              setSent(true);
+              onDone();
             } catch (err) {
               setError(err instanceof Error ? err.message : "Emit failed.");
             }

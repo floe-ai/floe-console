@@ -1,5 +1,12 @@
 import WebSocket from "ws";
-import { isStreamEntry, isDeliveryAvailable, type StreamEntry, type DeliveryAvailable } from "./types.js";
+import {
+  isStreamEntry,
+  isDeliveryAvailable,
+  isPushFrame,
+  type StreamEntry,
+  type DeliveryAvailable,
+  type PushFrame,
+} from "./types.js";
 
 /**
  * The live event stream over GET /v1/events/stream.
@@ -34,6 +41,8 @@ export interface EventStreamHandlers {
    * does not. This is the push that replaces polling for work.
    */
   onDeliveryAvailable?(frame: DeliveryAvailable): void;
+  /** Every pushed frame that carries a cursor, including the two above. */
+  onPush?(frame: PushFrame): void;
 }
 
 /** Minimal socket surface, so tests can drive the client without a real network. */
@@ -53,6 +62,11 @@ export interface EventStreamOptions {
   readonly handlers: EventStreamHandlers;
   /** Start from live only (skip backlog) instead of replaying from a cursor. */
   readonly startAtCurrent?: boolean;
+  /**
+   * Resume after this cursor. A renewed bearer opens a new stream; passing the
+   * previous stream's cursor means nothing pushed in between is missed.
+   */
+  readonly afterCursor?: string | null;
   readonly createSocket?: (url: string) => MinimalSocket;
   readonly now?: () => number;
   readonly maxBackoffMs?: number;
@@ -69,7 +83,14 @@ export class EventStream {
   private hasConnectedOnce = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 
-  constructor(private readonly options: EventStreamOptions) {}
+  constructor(private readonly options: EventStreamOptions) {
+    this.lastCursor = options.afterCursor ?? null;
+  }
+
+  /** The position of the last frame seen; hand it to the next stream. */
+  get cursor(): string | null {
+    return this.lastCursor;
+  }
 
   /** Open the stream and keep it open, reconnecting on transport failures. */
   start(): void {
@@ -128,9 +149,11 @@ export class EventStream {
       return;
     }
 
-    if (isStreamEntry(frame)) {
+    if (isPushFrame(frame)) {
       this.lastCursor = frame.cursor;
-      this.options.handlers.onEntry(frame);
+      this.options.handlers.onPush?.(frame);
+      if (isStreamEntry(frame)) this.options.handlers.onEntry(frame);
+      else if (isDeliveryAvailable(frame)) this.options.handlers.onDeliveryAvailable?.(frame);
       return;
     }
 
