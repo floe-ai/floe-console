@@ -9,8 +9,9 @@ import { SentTasks } from "../components/SentTasks.js";
 import { EngineStatus } from "../components/EngineStatus.js";
 import { TaskTracker } from "../../tasks/task-tracker.js";
 import { actorEngine, engineKeys, sendWarnings } from "../../engines/engine-view.js";
-import { ToolAccessNotice } from "../components/ToolAccessNotice.js";
-import { accessFromPush, parseAccess, toolAccessNotice } from "../../workspace/access.js";
+import { Notices } from "../components/Notices.js";
+import { accessChanges, accessFromPush, parseAccess } from "../../workspace/access.js";
+import { learnViewer, unseenNotices } from "../../workspace/notices.js";
 export function MainSurface({ identity, engines, workspaceName, workspaceId, bearer, endpoints, }) {
     const { exit } = useApp();
     const displayName = identity.state.kind === "none" ? "" : identity.state.display_name;
@@ -30,6 +31,17 @@ export function MainSurface({ identity, engines, workspaceName, workspaceId, bea
     const [engineView, setEngineView] = useState(() => engines.getView());
     /** The Workspace's folders and System access, as Floe last pushed them; null until it has. */
     const [access, setAccess] = useState(null);
+    /** Who Floe says is looking, so its notices can be told apart as seen or not. */
+    const [viewer, setViewer] = useState(undefined);
+    useEffect(() => {
+        let current = true;
+        learnViewer(client)
+            .then((id) => current && setViewer(id))
+            .catch(() => current && setViewer(null));
+        return () => {
+            current = false;
+        };
+    }, [client]);
     useEffect(() => {
         setEngineView(engines.getView());
         return engines.subscribe(setEngineView);
@@ -194,7 +206,7 @@ export function MainSurface({ identity, engines, workspaceName, workspaceId, bea
     if (mode.name === "send") {
         return (_jsx(SendWork, { client: client, sourceEndpointId: actor.endpoint_id, engines: engineView, onDone: () => setMode({ name: "browse" }) }));
     }
-    return (_jsxs(Box, { flexDirection: "column", gap: 1, children: [header, loadError && _jsx(Text, { color: "red", children: loadError }), _jsx(EngineStatus, { view: engineView }), _jsx(ToolAccessNotice, { notice: toolAccessNotice(access) }), _jsxs(Box, { flexDirection: "column", children: [_jsxs(Text, { bold: true, children: ["Waiting on you (", waiting.length, ")"] }), waiting.length === 0 ? (_jsx(Text, { dimColor: true, children: "Nothing is waiting. When an actor asks you, it appears here." })) : (waiting.map((d, i) => {
+    return (_jsxs(Box, { flexDirection: "column", gap: 1, children: [header, loadError && _jsx(Text, { color: "red", children: loadError }), _jsx(EngineStatus, { view: engineView }), _jsx(Notices, { notices: unseenNotices(access, viewer), canMarkSeen: typeof viewer === "string", onMarkSeen: (recordId) => accessChanges.markSeen(client, recordId) }), _jsxs(Box, { flexDirection: "column", children: [_jsxs(Text, { bold: true, children: ["Waiting on you (", waiting.length, ")"] }), waiting.length === 0 ? (_jsx(Text, { dimColor: true, children: "Nothing is waiting. When an actor asks you, it appears here." })) : (waiting.map((d, i) => {
                         const st = answers[d.delivery_id];
                         return (_jsxs(Text, { color: i === selected ? "cyan" : undefined, children: [i === selected ? "❯ " : "  ", truncate(questionText(d), 80), st ? _jsxs(Text, { dimColor: true, children: [" \u2014 ", describeAnswer(st)] }) : null] }, d.delivery_id));
                     }))] }), _jsx(SentTasks, { tasks: tasks, engines: engineView, nameOf: (id) => (id ? actorNames.get(id) ?? "the Actor" : "the Actor") }), _jsx(Box, { flexDirection: "column", children: _jsxs(Text, { dimColor: true, children: ["Live: ", lastActivity ?? "waiting for activity…"] }) }), _jsxs(Text, { dimColor: true, children: ["\u2191/\u2193 select \u00B7 Enter answer \u00B7 s send work", engineKeys(engineView).map((k) => ` · ${k.key} ${k.label}`).join(""), " \u00B7 g settings \u00B7 q quit"] })] }));

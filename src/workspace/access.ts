@@ -27,6 +27,8 @@ export interface WorkspaceAccessRecord {
   readonly path: string | null;
   readonly principal_id: string;
   readonly recorded_at: string;
+  /** Floe 0.4: the people who have seen this record as it now reads. Absent from older Floe. */
+  readonly seen_by?: readonly string[];
 }
 
 export interface WorkspaceAccess {
@@ -60,20 +62,18 @@ export function accessFromPush(frame: { type: string; payload: unknown }, worksp
   return access?.workspace_id === workspaceId ? access : null;
 }
 
-/** Floe's one-time notice that older Workspaces' Floe Actors were given tool access. */
-export function toolAccessNotice(access: WorkspaceAccess | null): WorkspaceAccessRecord | null {
-  return access?.records.find((record) => record.kind === "tool_access_given") ?? null;
-}
-
 export type ChangeOutcome =
   | { readonly kind: "done" }
   | { readonly kind: "refused"; readonly message: string };
 
 /**
- * The three changes. Each is one person's intent, so each gets its own
+ * The changes. Each is one person's intent, so each gets its own
  * idempotency key; the new state arrives by push, not from this answer.
  */
 export const accessChanges = {
+  /** Marks a notice seen by this person, on every surface they use. */
+  markSeen: (client: WorkspaceClient, recordId: string) =>
+    change(client, "workspace.notice.acknowledge", { record_id: recordId }),
   addFolder: (client: WorkspaceClient, path: string) => change(client, "workspace.folder.add", { path }),
   removeFolder: (client: WorkspaceClient, folderId: string) =>
     change(client, "workspace.folder.remove", { folder_id: folderId }),
@@ -108,6 +108,8 @@ function isRecord(value: unknown): value is WorkspaceAccessRecord {
     typeof value.record_id === "string" &&
     typeof value.kind === "string" &&
     typeof value.summary === "string" &&
-    typeof value.recorded_at === "string"
+    typeof value.recorded_at === "string" &&
+    (value.seen_by === undefined ||
+      (Array.isArray(value.seen_by) && value.seen_by.every((id) => typeof id === "string")))
   );
 }

@@ -47,6 +47,11 @@ export class EngineLink {
     return this.view;
   }
 
+  /** Floe's own words when engine control is served by a different Floe version from the console's copy. */
+  get versionNote(): string | null {
+    return this.client?.versionNote ?? null;
+  }
+
   subscribe(listener: (view: EnginesView) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
