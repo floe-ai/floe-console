@@ -67,7 +67,7 @@ export class TaskTracker {
             return false;
         const origin = str(chainField(event, "origin"));
         if (event.type === "request") {
-            const dest = asRecord(event.destination);
+            const dest = asRecord(event.destination_json);
             this.requestTarget.set(eventId, dest.kind === "endpoint" ? str(dest.endpoint_id) : null);
             return false;
         }
@@ -88,7 +88,7 @@ export class TaskTracker {
             return this.set(taskId, { kind: "resuming", answer: textOf(event) });
         }
         // The person's own work: a plain message their Actor sent to another Actor.
-        const dest = asRecord(event.destination);
+        const dest = asRecord(event.destination_json);
         if (event.type === "message" &&
             !origin &&
             event.source_endpoint_id === this.ownEndpointId &&

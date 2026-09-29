@@ -17,7 +17,7 @@ const task = frame("event_submitted", {
     event_id: "evt-task",
     type: "message",
     source_endpoint_id: ME,
-    destination: { kind: "endpoint", endpoint_id: FLOE },
+    destination_json: { kind: "endpoint", endpoint_id: FLOE },
     content: { text: "Ask me red or blue, then use it." },
   },
 });
@@ -29,7 +29,7 @@ function result(text: string, extra: Record<string, unknown>) {
       event_id: `evt-result-${seq}`,
       type: "message",
       source_endpoint_id: FLOE,
-      destination: { kind: "context", context_id: "ctx" },
+      destination_json: { kind: "context", context_id: "ctx" },
       content: { text, data: chain },
       metadata: chain,
     },
@@ -50,7 +50,7 @@ describe("TaskTracker", () => {
     expect(t.list()[0]?.phase.kind).toBe("working");
 
     t.push(frame("event_submitted", {
-      event: { event_id: "evt-req", type: "request", source_endpoint_id: FLOE, destination: { kind: "endpoint", endpoint_id: ME } },
+      event: { event_id: "evt-req", type: "request", source_endpoint_id: FLOE, destination_json: { kind: "endpoint", endpoint_id: ME } },
     }));
     t.push(result("I asked you.", { final: false, awaiting_request_event_ids: ["evt-req"] }));
     expect(t.list()[0]?.phase).toEqual({ kind: "waiting", onYou: true, text: "I asked you." });
@@ -76,7 +76,7 @@ describe("TaskTracker", () => {
     const t = new TaskTracker(ME);
     t.push(task);
     t.push(frame("event_submitted", {
-      event: { event_id: "evt-req2", type: "request", destination: { kind: "endpoint", endpoint_id: "endpoint:other" } },
+      event: { event_id: "evt-req2", type: "request", destination_json: { kind: "endpoint", endpoint_id: "endpoint:other" } },
     }));
     t.push(result("", { final: false, awaiting_request_event_ids: ["evt-req2"] }));
     expect(t.list()[0]?.phase).toMatchObject({ kind: "waiting", onYou: false });
@@ -102,12 +102,12 @@ describe("TaskTracker", () => {
         event_id: "evt-answer",
         type: "message",
         source_endpoint_id: ME,
-        destination: { kind: "context", context_id: "ctx" },
+        destination_json: { kind: "context", context_id: "ctx" },
         content: { text: "Blue.", data: { origin: "runtime_turn_result" } },
       },
     }));
     t.push(frame("event_submitted", {
-      event: { event_id: "evt-x", type: "message", source_endpoint_id: "endpoint:someone", destination: { kind: "endpoint", endpoint_id: FLOE } },
+      event: { event_id: "evt-x", type: "message", source_endpoint_id: "endpoint:someone", destination_json: { kind: "endpoint", endpoint_id: FLOE } },
     }));
     expect(t.list()).toEqual([]);
   });
