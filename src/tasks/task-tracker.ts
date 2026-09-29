@@ -6,6 +6,9 @@ import type { PushFrame } from "../bus/types.js";
  * A task is an Event the person's own Actor sent (seen pushed as
  * `event_submitted`). Each step is a frame that really happened:
  *  - received: `delivery_created` for that event
+ *  - held:     `runtime_telemetry` of kind `engine_not_ready` for a delivery that
+ *    carries it (the Bridge handed it back unstarted), or of kind
+ *    `runtime_unconfigured` naming it (sent while its Actor was already held)
  *  - working:  `delivery_runtime_prepared` for a delivery that carries it
  *  - result:   a `runtime_turn_result` message whose `origin_event_id` is the task.
  *    `final: false` means the Actor asked something and will resume once answered.
@@ -21,6 +24,12 @@ export type TaskPhase =
   | { readonly kind: "sent" }
   | { readonly kind: "not_delivered" }
   | { readonly kind: "received" }
+  /**
+   * Floe is holding it unstarted until the Actor can run (an engine that is not
+   * ready). Nothing failed; it runs by itself once the engine is ready.
+   * `engine` is null when Floe's signal did not name one.
+   */
+  | { readonly kind: "held"; readonly engine: string | null; readonly message: string }
   | { readonly kind: "working" }
   | {
       readonly kind: "waiting";
@@ -64,6 +73,8 @@ export class TaskTracker {
   private readonly tasks = new Map<string, Task>();
   private readonly deliveryTask = new Map<string, string>();
   private readonly requestTarget = new Map<string, string | null>();
+  /** The engine Floe last said an Actor is held for, until its work starts. */
+  private readonly heldEngine = new Map<string, string>();
 
   constructor(readonly ownEndpointId: string) {}
 
@@ -88,14 +99,22 @@ export class TaskTracker {
       case "delivery_bundle_available":
         this.onBundle(asRecord(p.delivery));
         return false;
-      case "delivery_runtime_prepared":
-        return this.advance(this.taskOfDelivery(p), { kind: "working" }, ["sent", "received", "resuming"]);
+      case "runtime_telemetry":
+        return this.onTelemetry(asRecord(p.telemetry));
+      case "delivery_runtime_prepared": {
+        const taskId = this.taskOfDelivery(p);
+        const endpoint = this.tasks.get(taskId)?.targetEndpointId;
+        const moved = this.advance(taskId, { kind: "working" }, ["sent", "received", "held", "resuming"]);
+        if (moved && endpoint) this.heldEngine.delete(endpoint);
+        return moved;
+      }
       case "delivery_failed":
       case "delivery_dead_lettered": {
         const error = str(p.error) ?? "The Actor's turn did not finish.";
         return this.advance(this.taskOfDelivery(p), { kind: "failed", text: error }, [
           "sent",
           "received",
+          "held",
           "working",
           "resuming",
         ]);
@@ -103,6 +122,25 @@ export class TaskTracker {
       default:
         return false;
     }
+  }
+
+  private onTelemetry(telemetry: Json): boolean {
+    const payload = asRecord(telemetry.payload);
+    const message = str(payload.message) ?? "";
+    const before: TaskPhase["kind"][] = ["sent", "received", "held", "resuming"];
+    if (telemetry.kind === "engine_not_ready") {
+      const engine = str(payload.engine);
+      const endpoint = str(telemetry.endpoint_id);
+      if (engine && endpoint) this.heldEngine.set(endpoint, engine);
+      return this.advance(this.taskOfDelivery(telemetry), { kind: "held", engine, message }, before);
+    }
+    if (telemetry.kind === "runtime_unconfigured") {
+      const taskId = str(payload.trigger_event_id) ?? "";
+      const endpoint = this.tasks.get(taskId)?.targetEndpointId;
+      const engine = endpoint ? (this.heldEngine.get(endpoint) ?? null) : null;
+      return this.advance(taskId, { kind: "held", engine, message }, before);
+    }
+    return false;
   }
 
   private taskOfDelivery(payload: Json): string {

@@ -6,8 +6,10 @@ import { EventStream } from "../../bus/event-stream.js";
 import { WorkspaceClient, questionText, } from "../../bus/workspace-client.js";
 import { Settings } from "./Settings.js";
 import { SentTasks } from "../components/SentTasks.js";
+import { EngineStatus } from "../components/EngineStatus.js";
 import { TaskTracker } from "../../tasks/task-tracker.js";
-export function MainSurface({ identity, workspaceName, workspaceId, bearer, endpoints, }) {
+import { engineKeys, sendWarnings } from "../../engines/engine-view.js";
+export function MainSurface({ identity, engines, workspaceName, workspaceId, bearer, endpoints, }) {
     const { exit } = useApp();
     const displayName = identity.state.kind === "none" ? "" : identity.state.display_name;
     const client = useMemo(() => new WorkspaceClient({ httpBaseUrl: endpoints.httpBaseUrl, bearerToken: bearer, workspaceId }), [endpoints.httpBaseUrl, bearer, workspaceId]);
@@ -23,6 +25,11 @@ export function MainSurface({ identity, workspaceName, workspaceId, bearer, endp
     const [answers, setAnswers] = useState({});
     const [mode, setMode] = useState({ name: "browse" });
     const [selected, setSelected] = useState(0);
+    const [engineView, setEngineView] = useState(() => engines.getView());
+    useEffect(() => {
+        setEngineView(engines.getView());
+        return engines.subscribe(setEngineView);
+    }, [engines]);
     const answersRef = useRef(answers);
     answersRef.current = answers;
     // Claim whatever is waiting for our Endpoint and merge it into the list,
@@ -117,6 +124,15 @@ export function MainSurface({ identity, workspaceName, workspaceId, bearer, endp
                 setMode({ name: "send" });
             if (input === "g")
                 setMode({ name: "settings" });
+            const engineKey = engineKeys(engineView).find((k) => k.key === input);
+            if (engineKey?.act === "reconnect")
+                void engines.connect();
+            if (engineKey?.act === "sign_in")
+                void engines.signIn(engineKey.engine);
+            if (engineKey?.act === "refresh")
+                void engines.refresh(engineKey.engine);
+            if (engineKey?.act === "cancel")
+                void engines.cancelSignIn(engineKey.engine);
             if (waiting.length > 0) {
                 if (key.upArrow)
                     setSelected((i) => Math.max(0, i - 1));
@@ -163,19 +179,19 @@ export function MainSurface({ identity, workspaceName, workspaceId, bearer, endp
         return _jsx(Settings, { identity: identity, onClose: () => setMode({ name: "browse" }) });
     }
     if (mode.name === "send") {
-        return (_jsx(SendWork, { client: client, sourceEndpointId: actor.endpoint_id, onDone: () => setMode({ name: "browse" }) }));
+        return (_jsx(SendWork, { client: client, sourceEndpointId: actor.endpoint_id, warnings: sendWarnings(engineView), onDone: () => setMode({ name: "browse" }) }));
     }
-    return (_jsxs(Box, { flexDirection: "column", gap: 1, children: [header, loadError && _jsx(Text, { color: "red", children: loadError }), _jsxs(Box, { flexDirection: "column", children: [_jsxs(Text, { bold: true, children: ["Waiting on you (", waiting.length, ")"] }), waiting.length === 0 ? (_jsx(Text, { dimColor: true, children: "Nothing is waiting. When an actor asks you, it appears here." })) : (waiting.map((d, i) => {
+    return (_jsxs(Box, { flexDirection: "column", gap: 1, children: [header, loadError && _jsx(Text, { color: "red", children: loadError }), _jsx(EngineStatus, { view: engineView }), _jsxs(Box, { flexDirection: "column", children: [_jsxs(Text, { bold: true, children: ["Waiting on you (", waiting.length, ")"] }), waiting.length === 0 ? (_jsx(Text, { dimColor: true, children: "Nothing is waiting. When an actor asks you, it appears here." })) : (waiting.map((d, i) => {
                         const st = answers[d.delivery_id];
                         return (_jsxs(Text, { color: i === selected ? "cyan" : undefined, children: [i === selected ? "❯ " : "  ", truncate(questionText(d), 80), st ? _jsxs(Text, { dimColor: true, children: [" \u2014 ", describeAnswer(st)] }) : null] }, d.delivery_id));
-                    }))] }), _jsx(SentTasks, { tasks: tasks, nameOf: (id) => (id ? actorNames.get(id) ?? "the Actor" : "the Actor") }), _jsx(Box, { flexDirection: "column", children: _jsxs(Text, { dimColor: true, children: ["Live: ", lastActivity ?? "waiting for activity…"] }) }), _jsx(Text, { dimColor: true, children: "\u2191/\u2193 select \u00B7 Enter answer \u00B7 s send work \u00B7 g settings \u00B7 q quit" })] }));
+                    }))] }), _jsx(SentTasks, { tasks: tasks, engines: engineView, nameOf: (id) => (id ? actorNames.get(id) ?? "the Actor" : "the Actor") }), _jsx(Box, { flexDirection: "column", children: _jsxs(Text, { dimColor: true, children: ["Live: ", lastActivity ?? "waiting for activity…"] }) }), _jsxs(Text, { dimColor: true, children: ["\u2191/\u2193 select \u00B7 Enter answer \u00B7 s send work", engineKeys(engineView).map((k) => ` · ${k.key} ${k.label}`).join(""), " \u00B7 g settings \u00B7 q quit"] })] }));
 }
 function AnswerPanel({ item, answer, onSubmit, onCancel, }) {
     const [body, setBody] = useState("");
     void onCancel;
     return (_jsxs(Box, { flexDirection: "column", gap: 1, children: [_jsx(Text, { bold: true, children: "Answer" }), _jsx(Box, { flexDirection: "column", borderStyle: "round", paddingX: 1, children: _jsx(Text, { children: questionText(item) }) }), answer?.kind === "error" && _jsx(Text, { color: "red", children: answer.message }), _jsxs(Box, { children: [_jsx(Text, { children: "> " }), _jsx(TextInput, { value: body, onChange: setBody, onSubmit: () => body.trim() && onSubmit(body) })] }), _jsx(Text, { dimColor: true, children: "Enter to send \u00B7 Esc to go back" })] }));
 }
-function SendWork({ client, sourceEndpointId, onDone, }) {
+function SendWork({ client, sourceEndpointId, warnings, onDone, }) {
     const [targets, setTargets] = useState(null);
     const [error, setError] = useState(null);
     const [target, setTarget] = useState(null);
@@ -205,10 +221,11 @@ function SendWork({ client, sourceEndpointId, onDone, }) {
         return _jsx(Text, { color: "red", children: error });
     if (!targets)
         return _jsx(Text, { children: "Loading actors\u2026" });
+    const notice = warnings.map((line) => (_jsx(Text, { color: "yellow", children: line }, line)));
     if (!target) {
-        return (_jsxs(Box, { flexDirection: "column", gap: 1, children: [_jsx(Text, { bold: true, children: "Send work \u2014 choose an actor" }), targets.length === 0 ? (_jsx(Text, { dimColor: true, children: "No actors to send to." })) : (targets.map((e, i) => (_jsxs(Text, { color: i === selected ? "cyan" : undefined, children: [i === selected ? "❯ " : "  ", e.name ?? e.endpoint_id] }, e.endpoint_id)))), _jsx(Text, { dimColor: true, children: "\u2191/\u2193 select \u00B7 Enter choose \u00B7 Esc cancel" })] }));
+        return (_jsxs(Box, { flexDirection: "column", gap: 1, children: [_jsx(Text, { bold: true, children: "Send work \u2014 choose an actor" }), notice, targets.length === 0 ? (_jsx(Text, { dimColor: true, children: "No actors to send to." })) : (targets.map((e, i) => (_jsxs(Text, { color: i === selected ? "cyan" : undefined, children: [i === selected ? "❯ " : "  ", e.name ?? e.endpoint_id] }, e.endpoint_id)))), _jsx(Text, { dimColor: true, children: "\u2191/\u2193 select \u00B7 Enter choose \u00B7 Esc cancel" })] }));
     }
-    return (_jsxs(Box, { flexDirection: "column", gap: 1, children: [_jsxs(Text, { bold: true, children: ["Send work to ", target.name ?? target.endpoint_id] }), _jsxs(Box, { children: [_jsx(Text, { children: "> " }), _jsx(TextInput, { value: body, onChange: setBody, onSubmit: async () => {
+    return (_jsxs(Box, { flexDirection: "column", gap: 1, children: [_jsxs(Text, { bold: true, children: ["Send work to ", target.name ?? target.endpoint_id] }), notice, _jsxs(Box, { children: [_jsx(Text, { children: "> " }), _jsx(TextInput, { value: body, onChange: setBody, onSubmit: async () => {
                             if (!body.trim())
                                 return;
                             try {

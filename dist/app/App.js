@@ -17,7 +17,7 @@ import { MainSurface } from "./screens/MainSurface.js";
  * above that routing because the person must finish them first: a backup being
  * shown once, and the offer to bring an earlier console's identity into Floe.
  */
-export function App({ link }) {
+export function App({ link, engines }) {
     const { exit } = useApp();
     const [state, setState] = useState(() => link.getState());
     const [legacy, setLegacy] = useState(() => findLegacyFile());
@@ -66,7 +66,7 @@ export function App({ link }) {
     }
     switch (session.kind) {
         case "ready":
-            return (_jsx(MainSurface, { identity: identity, workspaceName: session.workspace.name, workspaceId: session.workspace.workspace_id, bearer: session.bearer, endpoints: endpoints ?? resolveBusEndpoints() }));
+            return (_jsx(MainSurface, { identity: identity, engines: engines, workspaceName: session.workspace.name, workspaceId: session.workspace.workspace_id, bearer: session.bearer, endpoints: endpoints ?? resolveBusEndpoints() }));
         case "selecting":
             return _jsx(SelectWorkspace, { workspaces: session.workspaces, onSelect: (workspaceId) => link.select(workspaceId) });
         case "stopped":

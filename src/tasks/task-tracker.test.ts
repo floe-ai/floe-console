@@ -105,6 +105,51 @@ describe("TaskTracker", () => {
     expect(u.list()[0]?.phase.kind).toBe("not_delivered");
   });
 
+  it("shows work held for a signed-out engine as waiting, then working once it runs", () => {
+    const t = new TaskTracker(ME);
+    t.push(task);
+    t.push(frame("delivery_created", { event_id: "evt-task", destination_endpoint_id: FLOE }));
+    t.push(frame("delivery_bundle_available", { delivery: { delivery_id: "d1", endpoint_id: FLOE, trigger_event_id: "evt-task", events: [] } }));
+    // What the Bridge reports when it hands the delivery back unstarted.
+    t.push(frame("runtime_telemetry", {
+      telemetry: {
+        workspace_id: "w",
+        endpoint_id: FLOE,
+        delivery_id: "d1",
+        kind: "engine_not_ready",
+        payload: { code: "engine_not_ready", engine: "copilot", phase: "action_required", action: "sign_in", message: "Sign in to GitHub Copilot." },
+      },
+    }));
+    t.push(frame("delivery_deferred", { delivery_id: "d1", error: "engine_not_ready: Sign in to GitHub Copilot." }));
+    expect(t.list()[0]?.phase).toEqual({ kind: "held", engine: "copilot", message: "Sign in to GitHub Copilot." });
+
+    // Signed in: the Bus makes a new delivery for the same event and it runs.
+    t.push(frame("delivery_bundle_available", { delivery: { delivery_id: "d2", endpoint_id: FLOE, trigger_event_id: "evt-task", events: [] } }));
+    t.push(frame("delivery_runtime_prepared", { delivery_id: "d2" }));
+    expect(t.list()[0]?.phase.kind).toBe("working");
+  });
+
+  it("shows work sent to an Actor that is already held as waiting, naming the engine seen earlier", () => {
+    const t = new TaskTracker(ME);
+    t.push(frame("runtime_telemetry", {
+      telemetry: { endpoint_id: FLOE, delivery_id: "d0", kind: "engine_not_ready", payload: { engine: "copilot", message: "Sign in." } },
+    }));
+    t.push(task);
+    t.push(frame("delivery_created", { event_id: "evt-task", destination_endpoint_id: FLOE }));
+    const message = "The message was accepted and is waiting; it will be delivered when this Actor's runtime is ready (engine_not_ready: Sign in.).";
+    t.push(frame("runtime_telemetry", {
+      telemetry: { endpoint_id: FLOE, delivery_id: null, kind: "runtime_unconfigured", payload: { code: "runtime_unconfigured", trigger_event_id: "evt-task", message } },
+    }));
+    expect(t.list()[0]?.phase).toEqual({ kind: "held", engine: "copilot", message });
+  });
+
+  it("ignores other telemetry", () => {
+    const t = new TaskTracker(ME);
+    t.push(task);
+    expect(t.push(frame("runtime_telemetry", { telemetry: { kind: "tool_call", delivery_id: "d1", payload: {} } }))).toBe(false);
+    expect(t.list()[0]?.phase.kind).toBe("sent");
+  });
+
   it("ignores the person's own answers and other people's work", () => {
     const t = new TaskTracker(ME);
     // Answering ends this Actor's turn: a runtime_turn_result sourced from ME.

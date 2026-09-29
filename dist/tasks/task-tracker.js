@@ -18,6 +18,8 @@ export class TaskTracker {
     tasks = new Map();
     deliveryTask = new Map();
     requestTarget = new Map();
+    /** The engine Floe last said an Actor is held for, until its work starts. */
+    heldEngine = new Map();
     constructor(ownEndpointId) {
         this.ownEndpointId = ownEndpointId;
     }
@@ -42,14 +44,23 @@ export class TaskTracker {
             case "delivery_bundle_available":
                 this.onBundle(asRecord(p.delivery));
                 return false;
-            case "delivery_runtime_prepared":
-                return this.advance(this.taskOfDelivery(p), { kind: "working" }, ["sent", "received", "resuming"]);
+            case "runtime_telemetry":
+                return this.onTelemetry(asRecord(p.telemetry));
+            case "delivery_runtime_prepared": {
+                const taskId = this.taskOfDelivery(p);
+                const endpoint = this.tasks.get(taskId)?.targetEndpointId;
+                const moved = this.advance(taskId, { kind: "working" }, ["sent", "received", "held", "resuming"]);
+                if (moved && endpoint)
+                    this.heldEngine.delete(endpoint);
+                return moved;
+            }
             case "delivery_failed":
             case "delivery_dead_lettered": {
                 const error = str(p.error) ?? "The Actor's turn did not finish.";
                 return this.advance(this.taskOfDelivery(p), { kind: "failed", text: error }, [
                     "sent",
                     "received",
+                    "held",
                     "working",
                     "resuming",
                 ]);
@@ -57,6 +68,25 @@ export class TaskTracker {
             default:
                 return false;
         }
+    }
+    onTelemetry(telemetry) {
+        const payload = asRecord(telemetry.payload);
+        const message = str(payload.message) ?? "";
+        const before = ["sent", "received", "held", "resuming"];
+        if (telemetry.kind === "engine_not_ready") {
+            const engine = str(payload.engine);
+            const endpoint = str(telemetry.endpoint_id);
+            if (engine && endpoint)
+                this.heldEngine.set(endpoint, engine);
+            return this.advance(this.taskOfDelivery(telemetry), { kind: "held", engine, message }, before);
+        }
+        if (telemetry.kind === "runtime_unconfigured") {
+            const taskId = str(payload.trigger_event_id) ?? "";
+            const endpoint = this.tasks.get(taskId)?.targetEndpointId;
+            const engine = endpoint ? (this.heldEngine.get(endpoint) ?? null) : null;
+            return this.advance(taskId, { kind: "held", engine, message }, before);
+        }
+        return false;
     }
     taskOfDelivery(payload) {
         return this.deliveryTask.get(str(payload.delivery_id) ?? "") ?? "";
