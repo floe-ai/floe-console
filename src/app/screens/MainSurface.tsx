@@ -16,6 +16,8 @@ import { EngineStatus } from "../components/EngineStatus.js";
 import { TaskTracker, type Task } from "../../tasks/task-tracker.js";
 import type { EngineLink, EnginesView } from "../../engines/engine-link.js";
 import { engineKeys, sendWarnings } from "../../engines/engine-view.js";
+import { ToolAccessNotice } from "../components/ToolAccessNotice.js";
+import { accessFromPush, parseAccess, toolAccessNotice, type WorkspaceAccess } from "../../workspace/access.js";
 
 /**
  * The default surface once authenticated. Three jobs, nothing else:
@@ -86,6 +88,8 @@ export function MainSurface({
   const [mode, setMode] = useState<Mode>({ name: "browse" });
   const [selected, setSelected] = useState(0);
   const [engineView, setEngineView] = useState<EnginesView>(() => engines.getView());
+  /** The Workspace's folders and System access, as Floe last pushed them; null until it has. */
+  const [access, setAccess] = useState<WorkspaceAccess | null>(null);
 
   useEffect(() => {
     setEngineView(engines.getView());
@@ -150,14 +154,17 @@ export function MainSurface({
       afterCursor: cursorRef.current,
       handlers: {
         onStatus: (s) => setStreamStatus(s),
-        onCaughtUp: (_cursor, bridges) => {
-          if (bridges.length > 0) engines.bridgeConnected();
+        onCaughtUp: ({ connectedBridgeIds, workspaceAccess }) => {
+          if (connectedBridgeIds.length > 0) engines.bridgeConnected();
+          setAccess(parseAccess(workspaceAccess));
         },
         onEntry: () => {},
         onPush: (frame) => {
           cursorRef.current = frame.cursor;
           setLastActivity(`${frame.type} · ${new Date(frame.at).toLocaleTimeString()}`);
           if (frame.type === "bridge_connected") engines.bridgeConnected();
+          const changed = accessFromPush(frame, workspaceId);
+          if (changed) setAccess(changed);
           const tracker = trackerRef.current;
           if (tracker?.push(frame)) setTasks(tracker.list());
         },
@@ -261,7 +268,13 @@ export function MainSurface({
   }
 
   if (mode.name === "settings") {
-    return <Settings identity={identity} onClose={() => setMode({ name: "browse" })} />;
+    return (
+      <Settings
+        identity={identity}
+        workspace={{ access, client, name: workspaceName }}
+        onClose={() => setMode({ name: "browse" })}
+      />
+    );
   }
 
   if (mode.name === "send") {
@@ -281,6 +294,8 @@ export function MainSurface({
       {loadError && <Text color="red">{loadError}</Text>}
 
       <EngineStatus view={engineView} />
+
+      <ToolAccessNotice notice={toolAccessNotice(access)} />
 
       <Box flexDirection="column">
         <Text bold>Waiting on you ({waiting.length})</Text>

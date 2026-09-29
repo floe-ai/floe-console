@@ -9,6 +9,8 @@ import { SentTasks } from "../components/SentTasks.js";
 import { EngineStatus } from "../components/EngineStatus.js";
 import { TaskTracker } from "../../tasks/task-tracker.js";
 import { engineKeys, sendWarnings } from "../../engines/engine-view.js";
+import { ToolAccessNotice } from "../components/ToolAccessNotice.js";
+import { accessFromPush, parseAccess, toolAccessNotice } from "../../workspace/access.js";
 export function MainSurface({ identity, engines, workspaceName, workspaceId, bearer, endpoints, }) {
     const { exit } = useApp();
     const displayName = identity.state.kind === "none" ? "" : identity.state.display_name;
@@ -26,6 +28,8 @@ export function MainSurface({ identity, engines, workspaceName, workspaceId, bea
     const [mode, setMode] = useState({ name: "browse" });
     const [selected, setSelected] = useState(0);
     const [engineView, setEngineView] = useState(() => engines.getView());
+    /** The Workspace's folders and System access, as Floe last pushed them; null until it has. */
+    const [access, setAccess] = useState(null);
     useEffect(() => {
         setEngineView(engines.getView());
         return engines.subscribe(setEngineView);
@@ -90,9 +94,10 @@ export function MainSurface({ identity, engines, workspaceName, workspaceId, bea
             afterCursor: cursorRef.current,
             handlers: {
                 onStatus: (s) => setStreamStatus(s),
-                onCaughtUp: (_cursor, bridges) => {
-                    if (bridges.length > 0)
+                onCaughtUp: ({ connectedBridgeIds, workspaceAccess }) => {
+                    if (connectedBridgeIds.length > 0)
                         engines.bridgeConnected();
+                    setAccess(parseAccess(workspaceAccess));
                 },
                 onEntry: () => { },
                 onPush: (frame) => {
@@ -100,6 +105,9 @@ export function MainSurface({ identity, engines, workspaceName, workspaceId, bea
                     setLastActivity(`${frame.type} · ${new Date(frame.at).toLocaleTimeString()}`);
                     if (frame.type === "bridge_connected")
                         engines.bridgeConnected();
+                    const changed = accessFromPush(frame, workspaceId);
+                    if (changed)
+                        setAccess(changed);
                     const tracker = trackerRef.current;
                     if (tracker?.push(frame))
                         setTasks(tracker.list());
@@ -181,12 +189,12 @@ export function MainSurface({ identity, engines, workspaceName, workspaceId, bea
             } }));
     }
     if (mode.name === "settings") {
-        return _jsx(Settings, { identity: identity, onClose: () => setMode({ name: "browse" }) });
+        return (_jsx(Settings, { identity: identity, workspace: { access, client, name: workspaceName }, onClose: () => setMode({ name: "browse" }) }));
     }
     if (mode.name === "send") {
         return (_jsx(SendWork, { client: client, sourceEndpointId: actor.endpoint_id, warnings: sendWarnings(engineView), onDone: () => setMode({ name: "browse" }) }));
     }
-    return (_jsxs(Box, { flexDirection: "column", gap: 1, children: [header, loadError && _jsx(Text, { color: "red", children: loadError }), _jsx(EngineStatus, { view: engineView }), _jsxs(Box, { flexDirection: "column", children: [_jsxs(Text, { bold: true, children: ["Waiting on you (", waiting.length, ")"] }), waiting.length === 0 ? (_jsx(Text, { dimColor: true, children: "Nothing is waiting. When an actor asks you, it appears here." })) : (waiting.map((d, i) => {
+    return (_jsxs(Box, { flexDirection: "column", gap: 1, children: [header, loadError && _jsx(Text, { color: "red", children: loadError }), _jsx(EngineStatus, { view: engineView }), _jsx(ToolAccessNotice, { notice: toolAccessNotice(access) }), _jsxs(Box, { flexDirection: "column", children: [_jsxs(Text, { bold: true, children: ["Waiting on you (", waiting.length, ")"] }), waiting.length === 0 ? (_jsx(Text, { dimColor: true, children: "Nothing is waiting. When an actor asks you, it appears here." })) : (waiting.map((d, i) => {
                         const st = answers[d.delivery_id];
                         return (_jsxs(Text, { color: i === selected ? "cyan" : undefined, children: [i === selected ? "❯ " : "  ", truncate(questionText(d), 80), st ? _jsxs(Text, { dimColor: true, children: [" \u2014 ", describeAnswer(st)] }) : null] }, d.delivery_id));
                     }))] }), _jsx(SentTasks, { tasks: tasks, engines: engineView, nameOf: (id) => (id ? actorNames.get(id) ?? "the Actor" : "the Actor") }), _jsx(Box, { flexDirection: "column", children: _jsxs(Text, { dimColor: true, children: ["Live: ", lastActivity ?? "waiting for activity…"] }) }), _jsxs(Text, { dimColor: true, children: ["\u2191/\u2193 select \u00B7 Enter answer \u00B7 s send work", engineKeys(engineView).map((k) => ` · ${k.key} ${k.label}`).join(""), " \u00B7 g settings \u00B7 q quit"] })] }));

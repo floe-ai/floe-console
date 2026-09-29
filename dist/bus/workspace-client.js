@@ -88,6 +88,29 @@ export class WorkspaceClient {
         return this.json(res, "turn result");
     }
     /**
+     * Invoke a semantic operation (bus-api.md "Invoke a semantic operation").
+     * The Bus answers 200 with a receipt whether it completed or refused; a
+     * refusal carries Floe's own reason. Version "1" of input and operation is
+     * what the discovered definitions publish for the operations used here.
+     */
+    async invokeOperation(params) {
+        const res = await fetch(this.url(`/v1/workspaces/${this.options.workspaceId}/operations/invoke`), {
+            method: "POST",
+            headers: this.authHeaders({ "content-type": "application/json" }),
+            body: JSON.stringify({
+                operation_id: params.operationId,
+                operation_version: "1",
+                input_schema_version: "1",
+                idempotency_key: params.idempotencyKey,
+                input: params.input,
+            }),
+        });
+        const body = await this.json(res, params.operationId);
+        if (body.kind === "receipt" && body.receipt)
+            return body.receipt;
+        return { state: body.kind ?? "unknown", refusal: null };
+    }
+    /**
      * Send work to an Endpoint as a direct (non-graph) Event — the documented
      * `POST /v1/events/emit` ingress, addressed to the target with the message in
      * `content.text`. This is job 2 (send work), distinct from answering.

@@ -5,6 +5,9 @@ import SelectInput from "ink-select-input";
 import { IdentityError, type IdentityClient, type SecretKind } from "floe/identity";
 import { BackupView } from "../components/Backup.js";
 import { Identities } from "./Identities.js";
+import { WorkspaceAccessScreen } from "./WorkspaceAccess.js";
+import type { WorkspaceClient } from "../../bus/workspace-client.js";
+import type { WorkspaceAccess } from "../../workspace/access.js";
 import { messageOf } from "../../identity/identity-link.js";
 
 /**
@@ -13,7 +16,8 @@ import { messageOf } from "../../identity/identity-link.js";
  * secret key). Floe opens it; a passphrase identity needs the passphrase, and a
  * device identity needs an explicit confirmation because the device is its only
  * guard. Restoring on another machine is first run's "Restore". "Your identities"
- * lists every identity kept on this machine and deletes them.
+ * lists every identity kept on this machine and deletes them. "Workspace folders
+ * and System access" shows and changes which folders Actors' file tools may use.
  */
 
 type Phase =
@@ -21,9 +25,18 @@ type Phase =
   | { readonly name: "passphrase" }
   | { readonly name: "confirm" }
   | { readonly name: "identities" }
+  | { readonly name: "workspace" }
   | { readonly name: "revealed"; readonly kind: SecretKind; readonly secret: string };
 
-export function Settings({ identity, onClose }: { identity: IdentityClient; onClose: () => void }): JSX.Element {
+export function Settings({
+  identity,
+  workspace,
+  onClose,
+}: {
+  identity: IdentityClient;
+  workspace: { access: WorkspaceAccess | null; client: WorkspaceClient; name: string };
+  onClose: () => void;
+}): JSX.Element {
   const [phase, setPhase] = useState<Phase>({ name: "menu" });
   const [passphrase, setPassphrase] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +51,7 @@ export function Settings({ identity, onClose }: { identity: IdentityClient; onCl
       setError(null);
       setPhase({ name: "menu" });
     }
-  }, { isActive: phase.name !== "identities" });
+  }, { isActive: phase.name !== "identities" && phase.name !== "workspace" });
 
   async function reveal(args: { passphrase?: string; confirm?: boolean }): Promise<void> {
     try {
@@ -58,6 +71,17 @@ export function Settings({ identity, onClose }: { identity: IdentityClient; onCl
 
   if (phase.name === "identities") {
     return <Identities identity={identity} onBack={() => setPhase({ name: "menu" })} />;
+  }
+
+  if (phase.name === "workspace") {
+    return (
+      <WorkspaceAccessScreen
+        access={workspace.access}
+        client={workspace.client}
+        workspaceName={workspace.name}
+        onBack={() => setPhase({ name: "menu" })}
+      />
+    );
   }
 
   if (phase.name === "revealed") {
@@ -131,9 +155,18 @@ export function Settings({ identity, onClose }: { identity: IdentityClient; onCl
             value: "reveal",
           },
           { label: "Your identities", value: "identities" },
+          { label: "Workspace folders and System access", value: "workspace" },
         ]}
         onSelect={(item) =>
-          setPhase(item.value === "identities" ? { name: "identities" } : device ? { name: "confirm" } : { name: "passphrase" })
+          setPhase(
+            item.value === "identities"
+              ? { name: "identities" }
+              : item.value === "workspace"
+                ? { name: "workspace" }
+                : device
+                  ? { name: "confirm" }
+                  : { name: "passphrase" },
+          )
         }
       />
       <Text dimColor>Esc to go back.</Text>

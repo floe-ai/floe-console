@@ -67,7 +67,7 @@ describe("EventStream protocol", () => {
       handlers: {
         onEntry: (e) => entries.push(e),
         onCaughtUp: (c) => {
-          caughtUp = c;
+          caughtUp = c.cursor;
         },
         onStatus: (s) => statuses.push(s),
       },
@@ -88,16 +88,17 @@ describe("EventStream protocol", () => {
     stream.stop();
   });
 
-  it("reports the Bridges present at caught_up and passes Bridge presence pushes on", async () => {
+  it("reports the Bridges and Workspace access present at caught_up and passes pushes on", async () => {
     const wsBase = await startServer((ws) => {
       ws.on("message", () => {
         ws.send(JSON.stringify({ type: "authenticated", payload: { cursor: "c1" }, at: now() }));
-        ws.send(JSON.stringify({ type: "caught_up", payload: { cursor: "c1", connected_bridge_ids: ["bridge:a"] }, at: now() }));
+        ws.send(JSON.stringify({ type: "caught_up", payload: { cursor: "c1", connected_bridge_ids: ["bridge:a"], workspace_access: { system_access: false } }, at: now() }));
         ws.send(JSON.stringify({ type: "bridge_connected", payload: { bridge_id: "bridge:b", workspace_id: "ws:test" }, at: now(), cursor: "c2" }));
       });
     });
 
     let bridges: readonly string[] | undefined;
+    let access: unknown;
     const pushed: string[] = [];
     const stream = new EventStream({
       wsBaseUrl: wsBase,
@@ -105,8 +106,9 @@ describe("EventStream protocol", () => {
       workspaceId: "ws:test",
       handlers: {
         onEntry: () => {},
-        onCaughtUp: (_c, b) => {
-          bridges = b;
+        onCaughtUp: (c) => {
+          bridges = c.connectedBridgeIds;
+          access = c.workspaceAccess;
         },
         onPush: (f) => pushed.push(f.type),
         onStatus: () => {},
@@ -116,6 +118,7 @@ describe("EventStream protocol", () => {
     await waitFor(() => bridges !== undefined && pushed.length > 0);
 
     expect(bridges).toEqual(["bridge:a"]);
+    expect(access).toEqual({ system_access: false });
     expect(pushed).toEqual(["bridge_connected"]);
     stream.stop();
   });

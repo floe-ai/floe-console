@@ -31,10 +31,20 @@ export type StreamStatus =
   | { readonly kind: "reconnecting"; readonly attempt: number; readonly retryInMs: number }
   | { readonly kind: "closed"; readonly reason: string };
 
+export interface CaughtUp {
+  readonly cursor: string | null;
+  readonly connectedBridgeIds: readonly string[];
+  readonly workspaceAccess: unknown;
+}
+
 export interface EventStreamHandlers {
   onEntry(entry: StreamEntry): void;
-  /** `connectedBridgeIds`: the Bridges serving this Workspace at that instant. */
-  onCaughtUp(cursor: string | null, connectedBridgeIds: readonly string[]): void;
+  /**
+   * Replay ended. `connectedBridgeIds`: the Bridges serving this Workspace at
+   * that instant. `workspaceAccess`: the Workspace's folders and System access
+   * as Floe sent them (unparsed), or undefined when not sent.
+   */
+  onCaughtUp(state: CaughtUp): void;
   onStatus(status: StreamStatus): void;
   /**
    * A delivery is waiting for a client-executed Endpoint. Optional: only the
@@ -163,7 +173,10 @@ export class EventStream {
       return;
     }
 
-    const control = frame as { type?: string; payload?: { cursor?: string | null; connected_bridge_ids?: unknown } };
+    const control = frame as {
+      type?: string;
+      payload?: { cursor?: string | null; connected_bridge_ids?: unknown; workspace_access?: unknown };
+    };
     switch (control.type) {
       case "authenticated":
         this.hasConnectedOnce = true;
@@ -175,10 +188,11 @@ export class EventStream {
         const cursor = control.payload?.cursor ?? this.lastCursor;
         if (typeof cursor === "string") this.lastCursor = cursor;
         const bridges = control.payload?.connected_bridge_ids;
-        this.options.handlers.onCaughtUp(
-          cursor ?? null,
-          Array.isArray(bridges) ? bridges.filter((b): b is string => typeof b === "string") : [],
-        );
+        this.options.handlers.onCaughtUp({
+          cursor: cursor ?? null,
+          connectedBridgeIds: Array.isArray(bridges) ? bridges.filter((b): b is string => typeof b === "string") : [],
+          workspaceAccess: control.payload?.workspace_access,
+        });
         this.emit({ kind: "caught_up", cursor: cursor ?? null });
         return;
       }
