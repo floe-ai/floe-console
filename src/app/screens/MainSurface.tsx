@@ -15,7 +15,7 @@ import { SentTasks } from "../components/SentTasks.js";
 import { EngineStatus } from "../components/EngineStatus.js";
 import { TaskTracker, type Task } from "../../tasks/task-tracker.js";
 import type { EngineLink, EnginesView } from "../../engines/engine-link.js";
-import { engineKeys, sendWarnings } from "../../engines/engine-view.js";
+import { actorEngine, engineKeys, sendWarnings } from "../../engines/engine-view.js";
 import { ToolAccessNotice } from "../components/ToolAccessNotice.js";
 import { accessFromPush, parseAccess, toolAccessNotice, type WorkspaceAccess } from "../../workspace/access.js";
 
@@ -282,7 +282,7 @@ export function MainSurface({
       <SendWork
         client={client}
         sourceEndpointId={actor.endpoint_id}
-        warnings={sendWarnings(engineView)}
+        engines={engineView}
         onDone={() => setMode({ name: "browse" })}
       />
     );
@@ -365,13 +365,13 @@ function AnswerPanel({
 function SendWork({
   client,
   sourceEndpointId,
-  warnings,
+  engines,
   onDone,
 }: {
   client: WorkspaceClient;
   sourceEndpointId: string;
-  /** Why work sent now would wait, shown before it is sent. */
-  warnings: readonly string[];
+  /** Engine readiness, for why work sent now to the chosen Actor would wait. */
+  engines: EnginesView;
   onDone: () => void;
 }): JSX.Element {
   const [targets, setTargets] = useState<Endpoint[] | null>(null);
@@ -400,6 +400,9 @@ function SendWork({
   if (error) return <Text color="red">{error}</Text>;
   if (!targets) return <Text>Loading actors…</Text>;
 
+  // The warning follows the Actor highlighted, then the one chosen.
+  const focused = target ?? targets[selected];
+  const warnings = sendWarnings(engines, focused ? actorEngine(focused) : undefined);
   const notice = warnings.map((line) => (
     <Text key={line} color="yellow">
       {line}

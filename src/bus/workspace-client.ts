@@ -28,6 +28,8 @@ export interface Endpoint {
   readonly adapter_id?: string;
   readonly name?: string;
   readonly bridge_id: string | null;
+  /** Set by the Bridge that runs the Actor; `engine` names the engine it uses. */
+  readonly metadata?: unknown;
   readonly [key: string]: unknown;
 }
 

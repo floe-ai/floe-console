@@ -140,12 +140,35 @@ export function engineKeys(view: EnginesView): EngineKey[] {
     : [{ key: "r", label: button.keyLabel, act: "refresh", engine }];
 }
 
-/** Shown before work is sent, so the person learns why it will wait before it waits. */
-export function sendWarnings(view: EnginesView): string[] {
-  if (view.kind === "unavailable") return [`The console can't see whether the AI engine is ready: ${view.message}`];
+/**
+ * The engine an Actor uses, from its endpoint's `metadata.engine`: an engine id,
+ * null when Floe says its runtime needs no engine, or undefined when no Bridge
+ * has picked the Actor up yet and Floe has not said.
+ */
+export function actorEngine(endpoint: { readonly metadata?: unknown }): string | null | undefined {
+  const metadata = endpoint.metadata;
+  if (typeof metadata !== "object" || metadata === null || !("engine" in metadata)) return undefined;
+  const engine = (metadata as { engine?: unknown }).engine;
+  if (engine === null) return null;
+  return typeof engine === "string" && engine ? engine : undefined;
+}
+
+/**
+ * Shown before work is sent, so the person learns why it will wait before it
+ * waits. With the Actor's engine known, only that engine is spoken of; while
+ * Floe has not said which engine it uses, every engine is.
+ */
+export function sendWarnings(view: EnginesView, engine?: string | null): string[] {
+  if (engine === null) return [];
+  if (view.kind === "unavailable") {
+    const subject = engine ? `whether ${engineName(engine)} is ready` : "whether the AI engine is ready";
+    return [`The console can't see ${subject}: ${view.message}`];
+  }
   if (view.kind !== "connected") return [];
+  if (engine && !view.engines[engine]) return [`Floe has not said whether ${engineName(engine)} is ready yet.`];
+  const states = engine ? [view.engines[engine]!] : Object.values(view.engines);
   const lines: string[] = [];
-  for (const state of Object.values(view.engines)) {
+  for (const state of states) {
     const name = engineName(state.engine);
     if (state.phase === "ready") continue;
     if (state.phase === "checking") {
