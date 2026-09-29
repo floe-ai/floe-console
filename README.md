@@ -22,12 +22,8 @@ You do not need to install Floe first: the console depends on Floe (`github:floe
 
 ### Upgrading
 
-If Floe was started from the console's own copy, it runs from files inside the console's install. On Windows, `npm install -g` then fails with `EBUSY` while Floe is running. Stop Floe first with the console's copy of the `floe` command, then upgrade:
+Run the install command again. Floe 0.3.2 runs its services from its own staged copy under `~/.floe`, so upgrading works while Floe is running.
 
-```
-node "$(npm root -g)\floe-console\node_modules\floe\floe-cli\dist\index.js" stop
-npm install -g github:floe-ai/floe-console
-```
 ## Principles that will not change
 
 - **No privileged access.** floe-console is an ordinary HTTP + WebSocket consumer of floe-bus. It holds no host-control credential and reaches around nothing.
