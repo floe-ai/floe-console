@@ -4,7 +4,8 @@ import { COMMANDS_NOT_CONFINED } from "../../workspace/access.js";
 /**
  * Floe's one-time notice that this older Workspace's Floe Actors were given
  * tool access. The words are Floe's own. It stays while Floe keeps the record:
- * Floe has no way yet to mark it seen, so the console does not pretend to.
+ * Floe 0.4 can mark it seen (workspace.notice.acknowledge), but the console
+ * does not use that yet, so it does not pretend the notice was seen.
  */
 export function ToolAccessNotice({ notice }) {
     if (!notice)
