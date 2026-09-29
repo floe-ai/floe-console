@@ -68,6 +68,8 @@ Floe's Bridge pushes whether each AI engine (today, Copilot) can run work. The m
 
 The console never sees a credential and never asks you to type a command. Floe does not use a `gh` login, so a machine logged in to `gh` can still show "signed out".
 
+Before work is sent, the console warns only about the engine the chosen Actor uses (`metadata.engine` on its endpoint). An Actor Floe says needs no engine gets no warning. Until a Bridge has picked the Actor up, Floe has not said, so every engine that is not ready is mentioned.
+
 ## Workspace folders and System access
 
 In settings (`g`) → **Workspace folders and System access**. The screen shows only what Floe pushed (`workspace_access` on `caught_up`, then `workspace_access_changed`); each change is one of Floe's workspace operations, and Floe's own reason is shown when it refuses.

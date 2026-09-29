@@ -8,7 +8,7 @@ import { Settings } from "./Settings.js";
 import { SentTasks } from "../components/SentTasks.js";
 import { EngineStatus } from "../components/EngineStatus.js";
 import { TaskTracker } from "../../tasks/task-tracker.js";
-import { engineKeys, sendWarnings } from "../../engines/engine-view.js";
+import { actorEngine, engineKeys, sendWarnings } from "../../engines/engine-view.js";
 import { ToolAccessNotice } from "../components/ToolAccessNotice.js";
 import { accessFromPush, parseAccess, toolAccessNotice } from "../../workspace/access.js";
 export function MainSurface({ identity, engines, workspaceName, workspaceId, bearer, endpoints, }) {
@@ -192,7 +192,7 @@ export function MainSurface({ identity, engines, workspaceName, workspaceId, bea
         return (_jsx(Settings, { identity: identity, workspace: { access, client, name: workspaceName }, onClose: () => setMode({ name: "browse" }) }));
     }
     if (mode.name === "send") {
-        return (_jsx(SendWork, { client: client, sourceEndpointId: actor.endpoint_id, warnings: sendWarnings(engineView), onDone: () => setMode({ name: "browse" }) }));
+        return (_jsx(SendWork, { client: client, sourceEndpointId: actor.endpoint_id, engines: engineView, onDone: () => setMode({ name: "browse" }) }));
     }
     return (_jsxs(Box, { flexDirection: "column", gap: 1, children: [header, loadError && _jsx(Text, { color: "red", children: loadError }), _jsx(EngineStatus, { view: engineView }), _jsx(ToolAccessNotice, { notice: toolAccessNotice(access) }), _jsxs(Box, { flexDirection: "column", children: [_jsxs(Text, { bold: true, children: ["Waiting on you (", waiting.length, ")"] }), waiting.length === 0 ? (_jsx(Text, { dimColor: true, children: "Nothing is waiting. When an actor asks you, it appears here." })) : (waiting.map((d, i) => {
                         const st = answers[d.delivery_id];
@@ -204,7 +204,7 @@ function AnswerPanel({ item, answer, onSubmit, onCancel, }) {
     void onCancel;
     return (_jsxs(Box, { flexDirection: "column", gap: 1, children: [_jsx(Text, { bold: true, children: "Answer" }), _jsx(Box, { flexDirection: "column", borderStyle: "round", paddingX: 1, children: _jsx(Text, { children: questionText(item) }) }), answer?.kind === "error" && _jsx(Text, { color: "red", children: answer.message }), _jsxs(Box, { children: [_jsx(Text, { children: "> " }), _jsx(TextInput, { value: body, onChange: setBody, onSubmit: () => body.trim() && onSubmit(body) })] }), _jsx(Text, { dimColor: true, children: "Enter to send \u00B7 Esc to go back" })] }));
 }
-function SendWork({ client, sourceEndpointId, warnings, onDone, }) {
+function SendWork({ client, sourceEndpointId, engines, onDone, }) {
     const [targets, setTargets] = useState(null);
     const [error, setError] = useState(null);
     const [target, setTarget] = useState(null);
@@ -234,6 +234,9 @@ function SendWork({ client, sourceEndpointId, warnings, onDone, }) {
         return _jsx(Text, { color: "red", children: error });
     if (!targets)
         return _jsx(Text, { children: "Loading actors\u2026" });
+    // The warning follows the Actor highlighted, then the one chosen.
+    const focused = target ?? targets[selected];
+    const warnings = sendWarnings(engines, focused ? actorEngine(focused) : undefined);
     const notice = warnings.map((line) => (_jsx(Text, { color: "yellow", children: line }, line)));
     if (!target) {
         return (_jsxs(Box, { flexDirection: "column", gap: 1, children: [_jsx(Text, { bold: true, children: "Send work \u2014 choose an actor" }), notice, targets.length === 0 ? (_jsx(Text, { dimColor: true, children: "No actors to send to." })) : (targets.map((e, i) => (_jsxs(Text, { color: i === selected ? "cyan" : undefined, children: [i === selected ? "❯ " : "  ", e.name ?? e.endpoint_id] }, e.endpoint_id)))), _jsx(Text, { dimColor: true, children: "\u2191/\u2193 select \u00B7 Enter choose \u00B7 Esc cancel" })] }));

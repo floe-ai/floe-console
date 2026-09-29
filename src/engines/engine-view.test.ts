@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { EngineState } from "floe/engines";
 import type { EnginesView } from "./engine-link.js";
-import { buttonFor, engineKeys, heldLine, sendWarnings, showSignIn, signInLine } from "./engine-view.js";
+import { actorEngine, buttonFor, engineKeys, heldLine, sendWarnings, showSignIn, signInLine } from "./engine-view.js";
 
 const base: EngineState = {
   engine: "copilot",
@@ -80,6 +80,34 @@ describe("engine wording", () => {
     expect(sendWarnings({ kind: "unavailable", message: "not running" })).toEqual([
       "The console can't see whether the AI engine is ready: not running",
     ]);
+  });
+
+  it("warns only about the engine the chosen Actor uses, once Floe has said which", () => {
+    const signedOut = rows[0]![1];
+    const other: EngineState = { ...signedOut, engine: "claude", message: "Claude is not signed in on this machine." };
+    const two: EnginesView = { kind: "connected", engines: { copilot: signedOut, claude: other }, signIns: {}, problems: {} };
+    const actor = (metadata?: unknown) => ({ endpoint_id: "e", bridge_id: null, metadata });
+
+    expect(actorEngine(actor({ runtime_adapter: "floe-runtime", engine: "claude" }))).toBe("claude");
+    expect(sendWarnings(two, "claude")).toEqual([
+      "Claude is not ready: Claude is not signed in on this machine. Floe holds work you send now and runs it once Claude is ready.",
+    ]);
+
+    // Floe says the Actor's runtime needs no engine.
+    expect(actorEngine(actor({ engine: null }))).toBeNull();
+    expect(sendWarnings(two, null)).toEqual([]);
+    expect(sendWarnings({ kind: "unavailable", message: "not running" }, null)).toEqual([]);
+
+    // No Bridge has picked the Actor up yet: every engine, as before.
+    for (const unsaid of [actor(), actor({}), actor({ engine: "" })]) expect(actorEngine(unsaid)).toBeUndefined();
+    expect(sendWarnings(two, undefined)).toHaveLength(2);
+
+    // An engine Floe's engine control has not reported on.
+    expect(sendWarnings(view(signedOut), "claude")).toEqual(["Floe has not said whether Claude is ready yet."]);
+    expect(sendWarnings({ kind: "unavailable", message: "not running" }, "copilot")).toEqual([
+      "The console can't see whether Copilot is ready: not running",
+    ]);
+    expect(sendWarnings(two, "copilot")).toHaveLength(1);
   });
 
   it("says a held task is waiting for sign-in, not failed", () => {
