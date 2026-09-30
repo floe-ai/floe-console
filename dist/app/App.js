@@ -11,24 +11,40 @@ import { Migrate } from "./screens/Migrate.js";
 import { RegisterWorkspace } from "./screens/RegisterWorkspace.js";
 import { SelectWorkspace } from "./screens/SelectWorkspace.js";
 import { MainSurface } from "./screens/MainSurface.js";
+import { FloeVersion } from "./components/FloeVersion.js";
 /**
  * The console, with Floe's own note above every screen when the Floe already
- * running is a different version from the console's copy. Floe keeps it
- * running as it is; nothing here can switch it yet.
+ * running is a different version from the console's copy. When the console's
+ * copy is newer, the main screen offers to switch to it; Floe does the switch.
  */
-export function App({ link, engines }) {
+export function App({ link, engines, versionSwitch, }) {
     const [note, setNote] = useState(() => link.versionNote ?? engines.versionNote);
+    const [linkState, setLinkState] = useState(() => link.getState());
+    const [switching, setSwitching] = useState(() => versionSwitch.getState().kind === "switching");
+    /** True while the main screen is showing and nothing is being typed, so the switch keys are free. */
+    const [keys, setKeys] = useState(false);
     useEffect(() => {
-        const read = () => setNote(link.versionNote ?? engines.versionNote);
+        const read = () => {
+            setNote(link.versionNote ?? engines.versionNote);
+            setLinkState(link.getState());
+        };
         read();
         const offLink = link.subscribe(read);
         const offEngines = engines.subscribe(read);
+        const offSwitch = versionSwitch.subscribe((s) => setSwitching(s.kind === "switching"));
         return () => {
             offLink();
             offEngines();
+            offSwitch();
         };
-    }, [link, engines]);
-    return (_jsxs(Box, { flexDirection: "column", gap: 1, children: [note && _jsx(Text, { color: "yellow", children: note }), _jsx(Routed, { link: link, engines: engines })] }));
+    }, [link, engines, versionSwitch]);
+    const session = linkState.kind === "connected" ? linkState.session : null;
+    const workspaceId = session?.kind === "ready" ? session.workspace.workspace_id : null;
+    const workspaceNames = useMemo(() => new Map((session?.kind === "ready" || session?.kind === "selecting" ? session.workspaces : []).map((w) => [
+        w.workspace_id,
+        w.name,
+    ])), [session]);
+    return (_jsxs(Box, { flexDirection: "column", gap: 1, children: [_jsx(FloeVersion, { note: note, versionSwitch: versionSwitch, keys: keys, workspaceId: workspaceId, workspaceNames: workspaceNames }), !switching && _jsx(Routed, { link: link, engines: engines, versionSwitch: versionSwitch, onKeys: setKeys })] }));
 }
 /**
  * The whole console, routed by what Floe's identity agent has pushed. A screen
@@ -36,7 +52,7 @@ export function App({ link, engines }) {
  * above that routing because the person must finish them first: a backup being
  * shown once, and the offer to bring an earlier console's identity into Floe.
  */
-function Routed({ link, engines }) {
+function Routed({ link, engines, versionSwitch, onKeys, }) {
     const { exit } = useApp();
     const [state, setState] = useState(() => link.getState());
     const [legacy, setLegacy] = useState(() => findLegacyFile());
@@ -85,7 +101,7 @@ function Routed({ link, engines }) {
     }
     switch (session.kind) {
         case "ready":
-            return (_jsx(MainSurface, { identity: identity, engines: engines, workspaceName: session.workspace.name, workspaceId: session.workspace.workspace_id, bearer: session.bearer, endpoints: endpoints ?? resolveBusEndpoints() }));
+            return (_jsx(MainSurface, { identity: identity, engines: engines, workspaceName: session.workspace.name, workspaceId: session.workspace.workspace_id, bearer: session.bearer, endpoints: endpoints ?? resolveBusEndpoints(), versionSwitch: versionSwitch, onKeys: onKeys }));
         case "selecting":
             return _jsx(SelectWorkspace, { workspaces: session.workspaces, onSelect: (workspaceId) => link.select(workspaceId) });
         case "stopped":

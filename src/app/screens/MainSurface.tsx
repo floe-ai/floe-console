@@ -19,6 +19,7 @@ import { actorEngine, engineKeys, sendWarnings } from "../../engines/engine-view
 import { Notices } from "../components/Notices.js";
 import { accessChanges, accessFromPush, parseAccess, type WorkspaceAccess } from "../../workspace/access.js";
 import { learnViewer, unseenNotices, type Viewer } from "../../workspace/notices.js";
+import { endpointStatusFrom, type VersionSwitch } from "../../version/version-switch.js";
 
 /**
  * The default surface once authenticated. Three jobs, nothing else:
@@ -59,6 +60,8 @@ export function MainSurface({
   workspaceId,
   bearer,
   endpoints,
+  versionSwitch,
+  onKeys,
 }: {
   identity: IdentityClient;
   /** Whether the AI engine can run work, pushed by Floe's Bridge. */
@@ -68,6 +71,10 @@ export function MainSurface({
   /** Pushed by Floe, and pushed again renewed before it expires. */
   bearer: string;
   endpoints: BusEndpoints;
+  /** Told when an Actor Floe pushes stops being mid-turn, for a switch that is waiting. */
+  versionSwitch: VersionSwitch;
+  /** Whether this screen leaves single keys free for the version switch. */
+  onKeys: (free: boolean) => void;
 }): JSX.Element {
   const { exit } = useApp();
   const displayName = identity.state.kind === "none" ? "" : identity.state.display_name;
@@ -108,6 +115,11 @@ export function MainSurface({
     setEngineView(engines.getView());
     return engines.subscribe(setEngineView);
   }, [engines]);
+
+  useEffect(() => {
+    onKeys(mode.name === "browse" && actor !== "unknown" && actor !== null);
+  }, [onKeys, mode.name, actor]);
+  useEffect(() => () => onKeys(false), [onKeys]);
 
   const answersRef = useRef(answers);
   answersRef.current = answers;
@@ -176,6 +188,8 @@ export function MainSurface({
           cursorRef.current = frame.cursor;
           setLastActivity(`${frame.type} · ${new Date(frame.at).toLocaleTimeString()}`);
           if (frame.type === "bridge_connected") engines.bridgeConnected();
+          const status = endpointStatusFrom(frame.payload);
+          if (frame.type === "status_changed" && status) versionSwitch.endpointStatus(status.id, status.status);
           const changed = accessFromPush(frame, workspaceId);
           if (changed) setAccess(changed);
           const tracker = trackerRef.current;

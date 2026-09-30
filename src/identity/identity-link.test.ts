@@ -52,6 +52,26 @@ describe("IdentityLink", () => {
     await link.connect();
     expect(link.versionNote).toBe(note);
   });
+  it("ignores the old connection closing after it has been replaced (a version switch)", async () => {
+    const closes: Array<() => void> = [];
+    const make = () => {
+      const fake = fakeClient(unlocked);
+      Object.assign(fake.client, { onClose: (l: () => void) => (closes.push(l), () => {}) });
+      return fake.client;
+    };
+    const first = make();
+    const second = make();
+    const clients = [first, second];
+    const link = new IdentityLink(async () => clients.shift()!);
+    await link.connect();
+    await link.connect();
+    closes[0]!();
+    expect(link.connection).toBe(second);
+    expect(link.getState().kind).toBe("connected");
+    closes[1]!();
+    expect(link.connection).toBeNull();
+    expect(link.getState().kind).toBe("unavailable");
+  });
   it("opens a session for an unlocked identity and shows the pushed bearer", async () => {
     const fake = fakeClient(unlocked);
     const link = new IdentityLink(async () => fake.client);
