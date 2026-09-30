@@ -67,6 +67,15 @@ function connected(view: EnginesView) {
 const tick = () => new Promise((r) => setImmediate(r));
 
 describe("EngineLink", () => {
+  it("passes on Floe's own note when engine control runs a different Floe version", async () => {
+    const w = wire({ copilot: ready });
+    const link = new EngineLink(async () => w.client);
+    expect(link.versionNote).toBeNull();
+    await link.connect();
+    expect(link.versionNote).toMatch(/from Floe 0\.3\.5, but this surface ships Floe \d/);
+    w.close();
+    expect(link.versionNote).toBeNull();
+  });
   it("reconnects by itself when Floe says a Bridge came up, once, and not while connected", async () => {
     let calls = 0;
     let available = false;

@@ -6,7 +6,6 @@ import {
   accessChanges,
   accessFromPush,
   parseAccess,
-  toolAccessNotice,
   type WorkspaceAccess,
 } from "./access.js";
 import { accessRows, folderLabel, rowKeys, systemAccessLine } from "./access-view.js";
@@ -38,17 +37,17 @@ describe("Workspace access from Floe", () => {
     expect(parseAccess({ ...access, folders: [{ path: "C:\\x" }] })).toBeNull();
   });
 
+  it("keeps who has seen each record (Floe 0.4), and accepts records from older Floe without it", () => {
+    const seen = { ...notice, seen_by: ["identity:identity_1"] };
+    expect(parseAccess({ ...access, records: [seen, notice] })?.records).toEqual([seen, notice]);
+    expect(parseAccess({ ...access, records: [{ ...notice, seen_by: [7] }] })).toBeNull();
+  });
+
   it("takes a change push only for this Workspace", () => {
     const frame = { type: "workspace_access_changed", payload: { workspace_id: "ws_1", access } };
     expect(accessFromPush(frame, "ws_1")).toEqual(access);
     expect(accessFromPush(frame, "ws_2")).toBeNull();
     expect(accessFromPush({ type: "bridge_connected", payload: { access } }, "ws_1")).toBeNull();
-  });
-
-  it("finds Floe's one-time tool access notice, and nothing when Floe has none", () => {
-    expect(toolAccessNotice({ ...access, records: [notice] })?.summary).toBe(notice.summary);
-    expect(toolAccessNotice(access)).toBeNull();
-    expect(toolAccessNotice(null)).toBeNull();
   });
 });
 
@@ -109,5 +108,14 @@ describe("Changing access through Floe's operations", () => {
     const message = "That folder is already inside this Workspace's folders.";
     const { client } = stubBus({ state: "refused", refusal: { code: "folder_already_included", message } });
     expect(await accessChanges.removeFolder(client, "folder_1")).toEqual({ kind: "refused", message });
+  });
+
+  it("marks a notice seen through Floe's acknowledge operation", async () => {
+    const { calls, client } = stubBus({ state: "completed", refusal: null });
+    expect(await accessChanges.markSeen(client, "notice:actor-access-lapse:actor_1")).toEqual({ kind: "done" });
+    expect(calls[0]!.body).toMatchObject({
+      operation_id: "workspace.notice.acknowledge",
+      input: { record_id: "notice:actor-access-lapse:actor_1" },
+    });
   });
 });

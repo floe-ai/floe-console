@@ -43,6 +43,15 @@ function session(link: IdentityLink): string {
 }
 
 describe("IdentityLink", () => {
+  it("passes on Floe's own version note, and none before it connects", async () => {
+    const fake = fakeClient(unlocked);
+    const note = "Connected to Floe's identity agent from Floe 0.4.6, but this surface ships Floe 0.4.7.";
+    Object.assign(fake.client, { versionNote: note });
+    const link = new IdentityLink(async () => fake.client);
+    expect(link.versionNote).toBeNull();
+    await link.connect();
+    expect(link.versionNote).toBe(note);
+  });
   it("opens a session for an unlocked identity and shows the pushed bearer", async () => {
     const fake = fakeClient(unlocked);
     const link = new IdentityLink(async () => fake.client);

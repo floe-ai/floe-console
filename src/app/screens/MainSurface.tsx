@@ -16,8 +16,9 @@ import { EngineStatus } from "../components/EngineStatus.js";
 import { TaskTracker, type Task } from "../../tasks/task-tracker.js";
 import type { EngineLink, EnginesView } from "../../engines/engine-link.js";
 import { actorEngine, engineKeys, sendWarnings } from "../../engines/engine-view.js";
-import { ToolAccessNotice } from "../components/ToolAccessNotice.js";
-import { accessFromPush, parseAccess, toolAccessNotice, type WorkspaceAccess } from "../../workspace/access.js";
+import { Notices } from "../components/Notices.js";
+import { accessChanges, accessFromPush, parseAccess, type WorkspaceAccess } from "../../workspace/access.js";
+import { learnViewer, unseenNotices, type Viewer } from "../../workspace/notices.js";
 
 /**
  * The default surface once authenticated. Three jobs, nothing else:
@@ -90,6 +91,18 @@ export function MainSurface({
   const [engineView, setEngineView] = useState<EnginesView>(() => engines.getView());
   /** The Workspace's folders and System access, as Floe last pushed them; null until it has. */
   const [access, setAccess] = useState<WorkspaceAccess | null>(null);
+  /** Who Floe says is looking, so its notices can be told apart as seen or not. */
+  const [viewer, setViewer] = useState<Viewer>(undefined);
+
+  useEffect(() => {
+    let current = true;
+    learnViewer(client)
+      .then((id) => current && setViewer(id))
+      .catch(() => current && setViewer(null));
+    return () => {
+      current = false;
+    };
+  }, [client]);
 
   useEffect(() => {
     setEngineView(engines.getView());
@@ -295,7 +308,11 @@ export function MainSurface({
 
       <EngineStatus view={engineView} />
 
-      <ToolAccessNotice notice={toolAccessNotice(access)} />
+      <Notices
+        notices={unseenNotices(access, viewer)}
+        canMarkSeen={typeof viewer === "string"}
+        onMarkSeen={(recordId) => accessChanges.markSeen(client, recordId)}
+      />
 
       <Box flexDirection="column">
         <Text bold>Waiting on you ({waiting.length})</Text>

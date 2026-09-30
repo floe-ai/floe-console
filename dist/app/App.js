@@ -12,12 +12,31 @@ import { RegisterWorkspace } from "./screens/RegisterWorkspace.js";
 import { SelectWorkspace } from "./screens/SelectWorkspace.js";
 import { MainSurface } from "./screens/MainSurface.js";
 /**
+ * The console, with Floe's own note above every screen when the Floe already
+ * running is a different version from the console's copy. Floe keeps it
+ * running as it is; nothing here can switch it yet.
+ */
+export function App({ link, engines }) {
+    const [note, setNote] = useState(() => link.versionNote ?? engines.versionNote);
+    useEffect(() => {
+        const read = () => setNote(link.versionNote ?? engines.versionNote);
+        read();
+        const offLink = link.subscribe(read);
+        const offEngines = engines.subscribe(read);
+        return () => {
+            offLink();
+            offEngines();
+        };
+    }, [link, engines]);
+    return (_jsxs(Box, { flexDirection: "column", gap: 1, children: [note && _jsx(Text, { color: "yellow", children: note }), _jsx(Routed, { link: link, engines: engines })] }));
+}
+/**
  * The whole console, routed by what Floe's identity agent has pushed. A screen
  * only appears once Floe has confirmed the state it represents. Two things sit
  * above that routing because the person must finish them first: a backup being
  * shown once, and the offer to bring an earlier console's identity into Floe.
  */
-export function App({ link, engines }) {
+function Routed({ link, engines }) {
     const { exit } = useApp();
     const [state, setState] = useState(() => link.getState());
     const [legacy, setLegacy] = useState(() => findLegacyFile());

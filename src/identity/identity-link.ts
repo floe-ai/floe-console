@@ -69,6 +69,11 @@ export class IdentityLink {
     return this.client;
   }
 
+  /** Floe's own words when the running Floe is a different version from the console's copy. */
+  get versionNote(): string | null {
+    return this.client?.versionNote ?? null;
+  }
+
   async connect(): Promise<void> {
     this.set({ kind: "connecting" });
     try {

@@ -77,7 +77,8 @@ In settings (`g`) → **Workspace folders and System access**. The screen shows 
 - **Folders** — Actors' file tools can read and change files in the workspace's folders freely, without asking. Add a folder with the same picker first run uses; remove one after a confirmation (nothing in it is deleted). The workspace's own folder cannot be removed.
 - **Commands are not confined.** A command an Actor runs can read, change or delete any file you can, whatever the folders say. The screen says so wherever folders are described.
 - **System access** — off by default. Turning it on asks first and warns: "Actors can read and write anywhere on this machine." Turning it off takes effect at once.
-- **Floe's one-time notice** — older workspaces get a record that their Floe Actors can now use tools inside the workspace's folders. The main screen shows it, with the line about commands, for as long as Floe keeps it. Floe has no way yet to mark it seen, so the console does not hide it by itself.
+- **Floe's access notices** — the main screen shows each notice Floe keeps about access in the workspace that you have not seen yet, in Floe's words: an Actor's access about to run out, an Actor's access moving to a person, access carried over or left behind by a copy or restore, and the one-time note that Floe Actors can use tools inside the workspace's folders. `m` marks the top one seen through Floe (`workspace.notice.acknowledge`); it goes when Floe pushes that you have seen it, on every surface you use.
+- **A different Floe already running** — when the Floe already running is a different version from the console's copy, Floe's own note about it shows above every screen. Floe keeps the running one as it is until Floe restarts.
 
 ## Develop
 

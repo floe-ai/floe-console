@@ -23,15 +23,13 @@ export function accessFromPush(frame, workspaceId) {
     const access = parseAccess(frame.payload.access);
     return access?.workspace_id === workspaceId ? access : null;
 }
-/** Floe's one-time notice that older Workspaces' Floe Actors were given tool access. */
-export function toolAccessNotice(access) {
-    return access?.records.find((record) => record.kind === "tool_access_given") ?? null;
-}
 /**
- * The three changes. Each is one person's intent, so each gets its own
+ * The changes. Each is one person's intent, so each gets its own
  * idempotency key; the new state arrives by push, not from this answer.
  */
 export const accessChanges = {
+    /** Marks a notice seen by this person, on every surface they use. */
+    markSeen: (client, recordId) => change(client, "workspace.notice.acknowledge", { record_id: recordId }),
     addFolder: (client, path) => change(client, "workspace.folder.add", { path }),
     removeFolder: (client, folderId) => change(client, "workspace.folder.remove", { folder_id: folderId }),
     setSystemAccess: (client, enabled) => change(client, "workspace.system_access.set", { enabled }),
@@ -58,5 +56,7 @@ function isRecord(value) {
         typeof value.record_id === "string" &&
         typeof value.kind === "string" &&
         typeof value.summary === "string" &&
-        typeof value.recorded_at === "string");
+        typeof value.recorded_at === "string" &&
+        (value.seen_by === undefined ||
+            (Array.isArray(value.seen_by) && value.seen_by.every((id) => typeof id === "string"))));
 }

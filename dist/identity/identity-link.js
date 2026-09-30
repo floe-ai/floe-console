@@ -28,6 +28,10 @@ export class IdentityLink {
             throw new AgentUnavailableError("not_running", "Not connected to Floe's identity agent.");
         return this.client;
     }
+    /** Floe's own words when the running Floe is a different version from the console's copy. */
+    get versionNote() {
+        return this.client?.versionNote ?? null;
+    }
     async connect() {
         this.set({ kind: "connecting" });
         try {
