@@ -12,7 +12,8 @@ import { actorEngine, engineKeys, sendWarnings } from "../../engines/engine-view
 import { Notices } from "../components/Notices.js";
 import { accessChanges, accessFromPush, parseAccess } from "../../workspace/access.js";
 import { learnViewer, unseenNotices } from "../../workspace/notices.js";
-export function MainSurface({ identity, engines, workspaceName, workspaceId, bearer, endpoints, }) {
+import { endpointStatusFrom } from "../../version/version-switch.js";
+export function MainSurface({ identity, engines, workspaceName, workspaceId, bearer, endpoints, versionSwitch, onKeys, }) {
     const { exit } = useApp();
     const displayName = identity.state.kind === "none" ? "" : identity.state.display_name;
     const client = useMemo(() => new WorkspaceClient({ httpBaseUrl: endpoints.httpBaseUrl, bearerToken: bearer, workspaceId }), [endpoints.httpBaseUrl, bearer, workspaceId]);
@@ -46,6 +47,10 @@ export function MainSurface({ identity, engines, workspaceName, workspaceId, bea
         setEngineView(engines.getView());
         return engines.subscribe(setEngineView);
     }, [engines]);
+    useEffect(() => {
+        onKeys(mode.name === "browse" && actor !== "unknown" && actor !== null);
+    }, [onKeys, mode.name, actor]);
+    useEffect(() => () => onKeys(false), [onKeys]);
     const answersRef = useRef(answers);
     answersRef.current = answers;
     // Claim whatever is waiting for our Endpoint and merge it into the list,
@@ -117,6 +122,9 @@ export function MainSurface({ identity, engines, workspaceName, workspaceId, bea
                     setLastActivity(`${frame.type} · ${new Date(frame.at).toLocaleTimeString()}`);
                     if (frame.type === "bridge_connected")
                         engines.bridgeConnected();
+                    const status = endpointStatusFrom(frame.payload);
+                    if (frame.type === "status_changed" && status)
+                        versionSwitch.endpointStatus(status.id, status.status);
                     const changed = accessFromPush(frame, workspaceId);
                     if (changed)
                         setAccess(changed);

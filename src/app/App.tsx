@@ -12,28 +12,66 @@ import { Migrate } from "./screens/Migrate.js";
 import { RegisterWorkspace } from "./screens/RegisterWorkspace.js";
 import { SelectWorkspace } from "./screens/SelectWorkspace.js";
 import { MainSurface } from "./screens/MainSurface.js";
+import { FloeVersion } from "./components/FloeVersion.js";
+import type { VersionSwitch } from "../version/version-switch.js";
 
 /**
  * The console, with Floe's own note above every screen when the Floe already
- * running is a different version from the console's copy. Floe keeps it
- * running as it is; nothing here can switch it yet.
+ * running is a different version from the console's copy. When the console's
+ * copy is newer, the main screen offers to switch to it; Floe does the switch.
  */
-export function App({ link, engines }: { link: IdentityLink; engines: EngineLink }): JSX.Element {
+export function App({
+  link,
+  engines,
+  versionSwitch,
+}: {
+  link: IdentityLink;
+  engines: EngineLink;
+  versionSwitch: VersionSwitch;
+}): JSX.Element {
   const [note, setNote] = useState<string | null>(() => link.versionNote ?? engines.versionNote);
+  const [linkState, setLinkState] = useState<LinkState>(() => link.getState());
+  const [switching, setSwitching] = useState(() => versionSwitch.getState().kind === "switching");
+  /** True while the main screen is showing and nothing is being typed, so the switch keys are free. */
+  const [keys, setKeys] = useState(false);
   useEffect(() => {
-    const read = () => setNote(link.versionNote ?? engines.versionNote);
+    const read = () => {
+      setNote(link.versionNote ?? engines.versionNote);
+      setLinkState(link.getState());
+    };
     read();
     const offLink = link.subscribe(read);
     const offEngines = engines.subscribe(read);
+    const offSwitch = versionSwitch.subscribe((s) => setSwitching(s.kind === "switching"));
     return () => {
       offLink();
       offEngines();
+      offSwitch();
     };
-  }, [link, engines]);
+  }, [link, engines, versionSwitch]);
+  const session = linkState.kind === "connected" ? linkState.session : null;
+  const workspaceId = session?.kind === "ready" ? session.workspace.workspace_id : null;
+  const workspaceNames = useMemo(
+    () =>
+      new Map(
+        (session?.kind === "ready" || session?.kind === "selecting" ? session.workspaces : []).map((w) => [
+          w.workspace_id,
+          w.name,
+        ]),
+      ),
+    [session],
+  );
   return (
     <Box flexDirection="column" gap={1}>
-      {note && <Text color="yellow">{note}</Text>}
-      <Routed link={link} engines={engines} />
+      <FloeVersion
+        note={note}
+        versionSwitch={versionSwitch}
+        keys={keys}
+        workspaceId={workspaceId}
+        workspaceNames={workspaceNames}
+      />
+      {/* Floe restarts during a switch; its screens would only show the old connection closing. */}
+      {!switching && <Routed link={link} engines={engines} versionSwitch={versionSwitch} onKeys={setKeys} />}
     </Box>
   );
 }
@@ -44,7 +82,17 @@ export function App({ link, engines }: { link: IdentityLink; engines: EngineLink
  * above that routing because the person must finish them first: a backup being
  * shown once, and the offer to bring an earlier console's identity into Floe.
  */
-function Routed({ link, engines }: { link: IdentityLink; engines: EngineLink }): JSX.Element {
+function Routed({
+  link,
+  engines,
+  versionSwitch,
+  onKeys,
+}: {
+  link: IdentityLink;
+  engines: EngineLink;
+  versionSwitch: VersionSwitch;
+  onKeys: (free: boolean) => void;
+}): JSX.Element {
   const { exit } = useApp();
   const [state, setState] = useState<LinkState>(() => link.getState());
   const [legacy, setLegacy] = useState<LegacyFile | null>(() => findLegacyFile());
@@ -114,6 +162,8 @@ function Routed({ link, engines }: { link: IdentityLink; engines: EngineLink }):
           workspaceId={session.workspace.workspace_id}
           bearer={session.bearer}
           endpoints={endpoints ?? resolveBusEndpoints()}
+          versionSwitch={versionSwitch}
+          onKeys={onKeys}
         />
       );
     case "selecting":

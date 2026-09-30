@@ -69,6 +69,11 @@ export class IdentityLink {
     return this.client;
   }
 
+  /** The connected client, or null while not connected. */
+  get connection(): IdentityClient | null {
+    return this.client;
+  }
+
   /** Floe's own words when the running Floe is a different version from the console's copy. */
   get versionNote(): string | null {
     return this.client?.versionNote ?? null;
@@ -85,6 +90,8 @@ export class IdentityLink {
       this.deviceAutoOpen = true;
       client.onState((identity) => this.onIdentity(identity));
       client.onClose(() => {
+        // A connection replaced since (for example after a version switch) closing late changes nothing.
+        if (this.client !== client) return;
         this.client = null;
         this.session = null;
         this.set({

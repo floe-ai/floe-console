@@ -3,6 +3,7 @@ import { render } from "ink";
 import { App } from "./app/App.js";
 import { IdentityLink } from "./identity/identity-link.js";
 import { EngineLink } from "./engines/engine-link.js";
+import { ownFloeVersion, VersionSwitch } from "./version/version-switch.js";
 
 /**
  * Entry point. floe-console is an ordinary, unprivileged surface: Floe's
@@ -16,8 +17,14 @@ import { EngineLink } from "./engines/engine-link.js";
  */
 const link = new IdentityLink();
 const engines = new EngineLink();
+const versionSwitch = new VersionSwitch({
+  ownVersion: ownFloeVersion(),
+  client: () => link.connection,
+  // The same order as starting: the identity agent first, then engine control.
+  reconnect: () => link.connect().then(() => engines.connect()),
+});
 const connecting = link.connect().then(() => engines.connect());
-const app = render(<App link={link} engines={engines} />);
+const app = render(<App link={link} engines={engines} versionSwitch={versionSwitch} />);
 await connecting;
 await app.waitUntilExit();
 link.close();
